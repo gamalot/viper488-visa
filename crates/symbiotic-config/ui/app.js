@@ -816,12 +816,18 @@ function tip(b, text) {
   w.append(h, helpMark(text));
   return b;
 }
+// What a row without a name says: not found when it does not answer (not "unnamed": nothing could be asked), else why
+// it has no name yet.
+function untitled(it) {
+  if (!it.online) return t("instrument.offline");
+  return t(interfaceOf(it.resource).group === "serial" ? "instrument.not_asked" : "instrument.unnamed");
+}
 function listRow(it, short) {
   const title = titleOf(it.resource);
   return el("button", { type: "button", class: "listrow" + (it.hidden ? " hidden-item" : ""), "data-resource": it.resource, onclick: () => select({ kind: "instrument", id: it.resource }) },
     el("span", { class: "dot " + (it.online ? "ok" : "idle") }),
     el("span", { class: "where mono" }, short(it.resource)),
-    el("span", { class: "label" }, title || t(interfaceOf(it.resource).group === "serial" ? "instrument.not_asked" : "instrument.unnamed")));
+    el("span", { class: "label" }, title || untitled(it)));
 }
 
 // ---- the console ---------------------------------------------------------------------------------
@@ -1078,7 +1084,7 @@ function openLine(it, where, sub, ...after) {
     el("button", { type: "button", class: "linkrow", onclick: () => select({ kind: "instrument", id: it.resource }) },
       el("span", { class: "where mono" }, where),
       el("span", { class: "label" },
-        el("span", {}, title || t(interfaceOf(it.resource).group === "serial" ? "instrument.not_asked" : "instrument.unnamed")),
+        el("span", {}, title || untitled(it)),
         sub ? el("span", { class: "sub" }, sub) : null)),
     ...after);
 }

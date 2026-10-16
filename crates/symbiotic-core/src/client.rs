@@ -209,7 +209,11 @@ pub fn start_held() -> bool {
 }
 
 fn default_dir() -> Option<std::path::PathBuf> {
-    DAEMON_DIR.get().cloned().or_else(|| std::env::current_exe().ok()?.parent().map(Path::to_path_buf))
+    if let Some(d) = DAEMON_DIR.get() {
+        return Some(d.clone());
+    }
+    let own = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    crate::paths::daemon_dir_for(&own).or(Some(own))
 }
 
 /// One of the daemon's connections, as CLIENTS reports it.

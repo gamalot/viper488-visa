@@ -105,9 +105,39 @@ pub fn install_dirs() -> Vec<PathBuf> {
     reg_path(HKEY_LOCAL_MACHINE, "InstallDir").into_iter().collect()
 }
 
-#[cfg(not(windows))]
+/// On macOS: the daemon's directory in `Symbiotic.app`, in `~/Applications` and in `/Applications`.
+#[cfg(target_os = "macos")]
+pub fn install_dirs() -> Vec<PathBuf> {
+    let rel = Path::new("Symbiotic.app/Contents").join(BUNDLE_DAEMON_DIR);
+    let user = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications"));
+    user.into_iter().chain(Some(PathBuf::from("/Applications"))).map(|d| d.join(&rel)).collect()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn install_dirs() -> Vec<PathBuf> {
     Vec::new()
+}
+
+/// Where the daemon is in a macOS application bundle, from its `Contents`: the main program of a bundle of its own,
+/// which launchd needs to let it on the local network.
+pub const BUNDLE_DAEMON_DIR: &str = "Helpers/SymbioticDaemon.app/Contents/MacOS";
+
+/// The daemon's directory of the application bundle `dir` is in, when `dir` is its `Contents/MacOS` (the window,
+/// symbiotic-ctl) or `Contents/Frameworks` (the library).
+pub fn bundle_daemon_dir(dir: &Path) -> Option<PathBuf> {
+    let name = dir.file_name()?;
+    let contents = dir.parent().filter(|c| c.file_name().is_some_and(|n| n == "Contents"))?;
+    (name == "MacOS" || name == "Frameworks").then(|| contents.join(BUNDLE_DAEMON_DIR))
+}
+
+/// Where to start the daemon from, for a program or library in `own`: `own` itself if the daemon is there, else the
+/// daemon of the application bundle `own` is in, else an install's (`install_dirs`).
+pub fn daemon_dir_for(own: &Path) -> Option<PathBuf> {
+    let exe = if cfg!(windows) { "symbioticd.exe" } else { "symbioticd" };
+    std::iter::once(own.to_path_buf())
+        .chain(bundle_daemon_dir(own))
+        .chain(install_dirs())
+        .find(|d| d.join(exe).is_file())
 }
 
 /// A path from `SOFTWARE\Viper488\Symbiotic` under `root`.
@@ -213,5 +243,33 @@ mod tests {
         assert_eq!(config_file("lan.conf"), Some(PathBuf::from("/some/where/lan.conf")));
         std::env::remove_var(ENV);
         assert_ne!(config_dir(), Some(PathBuf::from("/some/where")));
+    }
+
+    #[test]
+    fn a_bundle_finds_the_daemon_in_its_helper() {
+        let app = Path::new("/Applications/Symbiotic.app/Contents");
+        let helper = app.join("Helpers/SymbioticDaemon.app/Contents/MacOS");
+        assert_eq!(bundle_daemon_dir(&app.join("MacOS")), Some(helper.clone()), "the window and symbiotic-ctl");
+        assert_eq!(bundle_daemon_dir(&app.join("Frameworks")), Some(helper), "the library");
+        assert_eq!(bundle_daemon_dir(Path::new("/usr/lib/symbiotic")), None);
+        assert_eq!(bundle_daemon_dir(Path::new("/opt/MacOS")), None, "a MacOS that is not in a Contents");
+        assert_eq!(bundle_daemon_dir(Path::new("/x/Contents/Resources")), None);
+    }
+
+    #[test]
+    fn the_daemon_beside_a_program_comes_first() {
+        let d = std::env::temp_dir().join(format!("symbiotic-paths-{}", std::process::id()));
+        let own = d.join("Symbiotic.app/Contents/MacOS");
+        let helper = d.join("Symbiotic.app/Contents").join(BUNDLE_DAEMON_DIR);
+        let exe = if cfg!(windows) { "symbioticd.exe" } else { "symbioticd" };
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::create_dir_all(&helper).unwrap();
+        let none = daemon_dir_for(&own); // an installed Symbiotic.app may answer; these two have no daemon yet
+        assert!(none.as_ref() != Some(&own) && none.as_ref() != Some(&helper), "{none:?}");
+        std::fs::write(helper.join(exe), b"").unwrap();
+        assert_eq!(daemon_dir_for(&own), Some(helper.clone()), "the bundle's helper");
+        std::fs::write(own.join(exe), b"").unwrap();
+        assert_eq!(daemon_dir_for(&own), Some(own.clone()), "beside it first");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -4,7 +4,7 @@
 //! Per user, never for the machine: Windows' `HKCU\...\Run`, a systemd user unit on Linux, a LaunchAgent on macOS.
 //! Starting twice is harmless: the second daemon finds the first one's channel taken and exits.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
@@ -14,14 +14,15 @@ pub enum State {
     Unsupported(String),
 }
 
-/// The daemon to start: beside the running program, else an install's directory.
+/// The daemon to start: beside the running program, else its application bundle's (macOS), else an install's directory.
 pub fn daemon_exe() -> Result<PathBuf, String> {
     let name = if cfg!(windows) { "symbioticd.exe" } else { "symbioticd" };
-    let own = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join(name)));
-    own.into_iter()
-        .chain(crate::paths::install_dirs().into_iter().map(|d| d.join(name)))
-        .find(|p| p.is_file())
-        .ok_or_else(|| format!("{name} is not beside this program or in an install directory"))
+    let own = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    let dir = match &own {
+        Some(d) => crate::paths::daemon_dir_for(d),
+        None => crate::paths::install_dirs().into_iter().find(|d| d.join(name).is_file()),
+    };
+    dir.map(|d| d.join(name)).ok_or_else(|| format!("{name} is not beside this program or in an install directory"))
 }
 
 /// The systemd user unit's text for a daemon at `exe`. `Restart=on-failure` brings it back if it
@@ -176,13 +177,6 @@ mod imp {
         std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/LaunchAgents/com.viper488.symbiotic.plist"))
     }
 
-    /// The daemon in `~/Applications/Symbiotic.app` (or `/Applications`), if it is made.
-    fn bundle_daemon() -> Option<PathBuf> {
-        let rel = "Symbiotic.app/Contents/MacOS/symbioticd";
-        let user = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications").join(rel));
-        user.into_iter().chain(std::iter::once(PathBuf::from("/Applications").join(rel))).find(|p| p.is_file())
-    }
-
     pub fn status() -> State {
         if plist_path().is_some_and(|p| p.is_file()) { State::On } else { State::Off }
     }
@@ -191,13 +185,10 @@ mod imp {
         let p = plist_path().ok_or("no HOME")?;
         let domain = format!("gui/{}", unsafe { libc::getuid() });
         if on {
-            // The daemon inside Symbiotic.app (tools/make_macos_app.sh) if there is one: launchd keeps a program
-            // with no application bundle out of the local network, so a plain one could not reach the registry.
-            let bundled = bundle_daemon();
-            let exe = match &bundled {
-                Some(b) => b.clone(),
-                None => daemon_exe()?,
-            };
+            // launchd keeps a program that is not an application bundle's main program out of the local network, so
+            // only the daemon of Symbiotic.app (its helper bundle) can reach the registry.
+            let exe = daemon_exe()?;
+            let bundled = exe.parent().is_some_and(|d| d.ends_with(crate::paths::BUNDLE_DAEMON_DIR));
             if let Some(d) = p.parent() {
                 std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
             }
@@ -205,9 +196,9 @@ mod imp {
             // Takes effect at the next login; bootstrapping now would start a second daemon.
             let _ = Command::new("launchctl").args(["bootout", &domain, &p.to_string_lossy()]).output();
             Ok(match bundled {
-                Some(_) => format!("the daemon starts when you log in ({}). The first time, macOS asks at the screen whether Symbiotic may use the local network: allow it", p.display()),
-                None => format!(
-                    "the daemon starts when you log in ({}), but started by launchd without an application bundle it cannot reach the local network; run tools/make_macos_app.sh and turn this on again",
+                true => format!("the daemon starts when you log in ({}). The first time, macOS asks at the screen whether Symbiotic may use the local network: allow it", p.display()),
+                false => format!(
+                    "the daemon starts when you log in ({}), but started by launchd outside Symbiotic.app it cannot reach the local network; install Symbiotic.app and turn this on again",
                     p.display()
                 ),
             })

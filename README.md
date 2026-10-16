@@ -20,7 +20,7 @@ LabVIEW-style applications, C programs and anything else that loads a VISA libra
 It also provides VISA.NET and VISA COM implementations on top of the same C API, a configuration window
 (`symbiotic-config`) and a command-line tool (`symbiotic-ctl`).
 
-Platforms: Windows (MSI), Linux (`.deb`, amd64) and macOS (build from source).
+Platforms: Windows (MSI), Linux (`.deb`, amd64) and macOS (`.dmg`, Apple Silicon and Intel).
 
 ## Quick start
 
@@ -279,6 +279,26 @@ user in `dialout`. Each user's configuration is in `~/.config/symbiotic`; the 82
 Without the package: build with `cargo build --release`, keep the library, the daemon and the tools in one
 directory, and install the udev rules with `sudo linux/install-udev.sh` (`--remove` takes them out again).
 
+
+### macOS
+
+A `.dmg` (universal: Apple Silicon and Intel, macOS 11 and later) holding one `Symbiotic.app`: drag it onto
+Applications. No administrator password; upgrading replaces it, removing it is dragging it to the Bin (turn
+starting at login off in the window first, if you turned it on). Opening it shows the configuration window.
+The library pyvisa is given is
+`/Applications/Symbiotic.app/Contents/Frameworks/libvisa64.dylib`; `symbiotic-ctl` is in `Contents/MacOS`, the
+headers in `Contents/Resources/include`, and the daemon is the main program of a bundle of its own inside
+(`Contents/Helpers/SymbioticDaemon.app`), which macOS needs before it lets a daemon started at login on the
+local network. It does not take `/Library/Frameworks/VISA.framework`, pyvisa's default there.
+
+The package is not signed by an Apple developer yet. **Before using it**, run once:
+
+    xattr -dr com.apple.quarantine /Applications/Symbiotic.app
+
+Without that, macOS asks at the screen before anything in it may run, and a program loading the library
+waits, without an error, until the question is answered. The first time the daemon uses the local network
+(alias sharing), macOS asks whether it may: allow it. Each user's configuration is in `~/.config/symbiotic`.
+
 ## Building
 
 Rust (stable), and for the Windows build from Linux, `cargo-xwin`, `clang-cl`, `llvm-lib` and `llvm-rc`
@@ -290,6 +310,7 @@ Rust (stable), and for the Windows build from Linux, `cargo-xwin`, `clang-cl`, `
     tools/build_dotnet.sh                                          # Symbiotic.Visa.dll, Symbiotic.VisaCom.dll (dotnet.exe on Windows)
     tools/build_msi.sh                                             # the MSI (wixl and msitools; builds the above first)
     tools/build_deb.sh                                             # the Linux .deb (cargo-zigbuild)
+    tools/build_macos.sh                                           # on a Mac: Symbiotic.app (universal) in a .dmg
     tools/check.sh                                                 # every check that needs no hardware
 
 A Linux build of the whole workspace needs WebKitGTK's headers for the window (`libwebkit2gtk-4.1-dev`).

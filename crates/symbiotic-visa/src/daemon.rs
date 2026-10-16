@@ -73,12 +73,14 @@ pub(crate) fn dll_dir() -> Option<PathBuf> {
 /// for a copy of the DLL put in a program's own folder (a 32-bit program's visa32.dll, say). Such a copy could
 /// otherwise use only a daemon already running.
 pub(crate) fn daemon_dir() -> Option<PathBuf> {
-    let exe = if cfg!(windows) { "symbioticd.exe" } else { "symbioticd" };
     let own = dll_dir();
-    if own.as_ref().is_some_and(|d| d.join(exe).is_file()) {
-        return own;
+    match &own {
+        Some(d) => symbiotic_core::paths::daemon_dir_for(d).or(own),
+        None => {
+            let exe = if cfg!(windows) { "symbioticd.exe" } else { "symbioticd" };
+            symbiotic_core::paths::install_dirs().into_iter().find(|d| d.join(exe).is_file())
+        }
     }
-    symbiotic_core::paths::install_dirs().into_iter().find(|d| d.join(exe).is_file()).or(own)
 }
 
 pub(crate) fn connect() -> Result<Client, Error> {
