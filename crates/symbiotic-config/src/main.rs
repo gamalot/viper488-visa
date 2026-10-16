@@ -700,6 +700,12 @@ pub(crate) fn own_title_bar<'a, R: tauri::Runtime, M: Manager<R>>(b: tauri::Webv
 }
 
 fn main() {
+    // WebKitGTK's DMA-BUF renderer draws the page as torn stripes on a Raspberry Pi 5; shared
+    // memory draws it right, and a page this size does not miss the GPU. The user's own setting wins.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     // The tree is what viFindRsrc finds; it must include what the setting keeps out of other programs' lists.
     instruments::see_everything();
     tauri::Builder::default()

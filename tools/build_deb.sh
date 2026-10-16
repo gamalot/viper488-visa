@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
-# build_deb.sh -- the Linux package (.deb, amd64), from the workspace, linked against glibc 2.34 so
+# build_deb.sh -- the Linux package (.deb, amd64 or arm64: the machine's own, since the window links its
+# WebKitGTK), from the workspace, linked against glibc 2.34 so
 # it installs on Ubuntu 22.04 / Debian 12 / RHEL 9 era systems and later. Needs cargo-zigbuild and
 # zig (~/.local/zig), dpkg-deb and fakeroot.
 #
-#   tools/build_deb.sh        -> target/viper488-symbiotic-visa_0.1.<commits>_amd64.deb
+#   tools/build_deb.sh        -> target/viper488-symbiotic-visa_0.1.<commits>_<arch>.deb
 #
 # Never with the Keysight 82357B firmware: it is Keysight's.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$HOME/.local/zig:$PATH"
 GLIBC=2.34
-TARGET=x86_64-unknown-linux-gnu
+case "$(uname -m)" in
+    x86_64) TARGET=x86_64-unknown-linux-gnu; ARCH=amd64 ;;
+    aarch64) TARGET=aarch64-unknown-linux-gnu; ARCH=arm64 ;;   # a Raspberry Pi 3/4/5 on a 64-bit system
+    *) echo "no package for $(uname -m)" >&2; exit 1 ;;
+esac
 VERSION="0.1.${SYMBIOTIC_BUILD:-$(git rev-list --count HEAD)}"
-OUT="target/viper488-symbiotic-visa_${VERSION}_amd64.deb"
+OUT="target/viper488-symbiotic-visa_${VERSION}_${ARCH}.deb"
 
 # Two runs: --bin would filter the other packages' targets out as well.
 cargo zigbuild -q --release --target "$TARGET.$GLIBC" -p symbiotic-core --bin symbioticd --bin symbiotic-ctl
@@ -48,7 +53,7 @@ install -m 0644 linux/symbiotic-config.desktop "$root/usr/share/applications/"
 install -m 0644 crates/symbiotic-config/icons/icon.png "$root/usr/share/icons/hicolor/512x512/apps/symbiotic-config.png"
 install -m 0644 README.md "$root/usr/share/doc/viper488-symbiotic-visa/"
 install -m 0644 LICENSE "$root/usr/share/doc/viper488-symbiotic-visa/copyright"
-sed "s/@VERSION@/$VERSION/" linux/deb/control > "$root/DEBIAN/control"
+sed "s/@VERSION@/$VERSION/; s/@ARCH@/$ARCH/" linux/deb/control > "$root/DEBIAN/control"
 echo "Installed-Size: $(du -sk --exclude=DEBIAN "$root" | cut -f1)" >> "$root/DEBIAN/control"
 install -m 0755 linux/deb/postinst linux/deb/prerm linux/deb/postrm "$root/DEBIAN/"
 

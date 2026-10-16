@@ -51,5 +51,21 @@ fn main() {
             println!("cargo:rustc-cdylib-link-arg=-Wl,-u,{name}");
         }
         println!("cargo:rustc-cdylib-link-arg=-Wl,--version-script={}", script.display());
+        // Two anonymous version scripts are more than GNU ld takes; lld merges them. rustc links
+        // x86_64 Linux with its own lld already; elsewhere (aarch64) the system cc would use GNU ld,
+        // so it is given rustc's lld too -- unless the build names a linker of its own
+        // (cargo-zigbuild's zig is lld).
+        let target = std::env::var("TARGET").unwrap();
+        let named = format!("CARGO_TARGET_{}_LINKER", target.to_uppercase().replace('-', "_"));
+        if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("x86_64") && std::env::var_os(&named).is_none() {
+            let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+            let sysroot = std::process::Command::new(rustc).args(["--print", "sysroot"]).output().unwrap();
+            let gcc_ld = std::path::PathBuf::from(String::from_utf8(sysroot.stdout).unwrap().trim())
+                .join("lib/rustlib").join(std::env::var("HOST").unwrap()).join("bin/gcc-ld");
+            if gcc_ld.join("ld.lld").exists() {
+                println!("cargo:rustc-cdylib-link-arg=-fuse-ld=lld");
+                println!("cargo:rustc-cdylib-link-arg=-B{}", gcc_ld.display());
+            }
+        }
     }
 }

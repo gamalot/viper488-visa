@@ -135,9 +135,23 @@ mod tests {
     fn what_the_calls_did_is_traced_while_on_and_not_while_off() {
         use std::io::{BufRead, BufReader, Write};
         use symbiotic_core::iotrace::{self, Cursor};
-        let state = std::env::temp_dir().join(format!("symbiotic-visa-trace-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&state);
-        std::env::set_var("SYMBIOTIC_TRACE_DIR", &state);
+        // The library takes its trace directory once per process, and another test in this binary
+        // may call it first: run in a process of our own whose environment names the directory
+        // from the start.
+        let Some(state) = std::env::var_os("SYMBIOTIC_TRACE_DIR").map(std::path::PathBuf::from) else {
+            let state = std::env::temp_dir().join(format!("symbiotic-visa-trace-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&state);
+            let me = "tests::what_the_calls_did_is_traced_while_on_and_not_while_off";
+            let out = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([me, "--exact", "--nocapture"])
+                .env("SYMBIOTIC_TRACE_DIR", &state)
+                .output()
+                .unwrap();
+            let _ = std::fs::remove_dir_all(&state);
+            let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+            assert!(out.status.success() && text.contains("1 passed"), "{text}");
+            return;
+        };
         let dir = iotrace::dir();
         assert!(dir.starts_with(&state));
         // An instrument that answers *IDN?, to every connection.

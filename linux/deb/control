@@ -1,6 +1,6 @@
 Package: viper488-symbiotic-visa
 Version: @VERSION@
-Architecture: amd64
+Architecture: @ARCH@
 Maintainer: Tommy Huang <gamalot@gmail.com>
 Depends: libc6 (>= 2.34), libgcc-s1, libwebkit2gtk-4.1-0, libgtk-3-0
 Recommends: fonts-noto-cjk

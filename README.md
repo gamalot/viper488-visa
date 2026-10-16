@@ -20,7 +20,7 @@ LabVIEW-style applications, C programs and anything else that loads a VISA libra
 It also provides VISA.NET and VISA COM implementations on top of the same C API, a configuration window
 (`symbiotic-config`) and a command-line tool (`symbiotic-ctl`).
 
-Platforms: Windows (MSI), Linux (`.deb`, amd64) and macOS (`.dmg`, Apple Silicon and Intel).
+Platforms: Windows (MSI), Linux (`.deb`, amd64 and arm64, e.g. a Raspberry Pi) and macOS (`.dmg`, Apple Silicon and Intel).
 
 ## Quick start
 
@@ -264,9 +264,10 @@ The MSI is not code-signed yet, so Windows SmartScreen may warn when it is run f
 
 ### Linux
 
-A `.deb` (amd64, glibc 2.34 and later: Ubuntu 22.04, Debian 12 and newer):
+A `.deb` (amd64 or arm64, glibc 2.34 and later: Ubuntu 22.04, Debian 12, Raspberry Pi OS Bookworm and
+newer; arm64 needs a 64-bit system, and is tested on a Raspberry Pi 5):
 
-    sudo apt install ./viper488-symbiotic-visa_<v>_amd64.deb
+    sudo apt install ./viper488-symbiotic-visa_<v>_amd64.deb      # or _arm64.deb
 
 It installs `libvisa64.so`, the daemon, `symbiotic-ctl` and `symbiotic-config` in `/usr/lib/symbiotic`, links
 the two programs into `/usr/bin`, the headers into `/usr/include/symbiotic`, a menu entry (the window needs
@@ -309,7 +310,7 @@ Rust (stable), and for the Windows build from Linux, `cargo-xwin`, `clang-cl`, `
     tools/build_visa32.sh                                          # visa32.dll, visa32.lib
     tools/build_dotnet.sh                                          # Symbiotic.Visa.dll, Symbiotic.VisaCom.dll (dotnet.exe on Windows)
     tools/build_msi.sh                                             # the MSI (wixl and msitools; builds the above first)
-    tools/build_deb.sh                                             # the Linux .deb (cargo-zigbuild)
+    tools/build_deb.sh                                             # the Linux .deb, this machine's arch (cargo-zigbuild)
     tools/build_macos.sh                                           # on a Mac: Symbiotic.app (universal) in a .dmg
     tools/check.sh                                                 # every check that needs no hardware
 
