@@ -1,0 +1,22 @@
+[package]
+name = "symbiotic-config"
+description = "Viper488 Symbiotic VISA Runtime: the configuration window (a web page in the system's webview, Tauri), for Windows, Linux and macOS"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+symbiotic-core = { path = "../symbiotic-core" }
+# The C API in-process, as an application uses it (built as an rlib too).
+symbiotic-visa = { path = "../symbiotic-visa" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+# Picture packs (picpack.rs): a line drawing written as a one-bit PNG, and a zip that was deflated read.
+png = "0.18.1"
+miniz_oxide = "0.9.1"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[lints]
+workspace = true

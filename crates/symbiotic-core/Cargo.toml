@@ -1,0 +1,25 @@
+[package]
+name = "symbiotic-core"
+description = "Viper488 WinUSB protocol v2 client and VISA-independent logic for Symbiotic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+curve25519-dalek = "4"
+ed25519-dalek = "3.0.0"
+getrandom = "0.4.3"
+nusb = "0.2.7"
+regex-lite = "0.1.9"
+sha2 = "0.10.9"
+socket2 = { version = "0.6.5", features = ["all"] }
+snow = { version = "0.10.0", default-features = false, features = ["default-resolver", "use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Devices_Communication", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Environment", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Threading", "Win32_System_Time"] }
+
+[lints]
+workspace = true

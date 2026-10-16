@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- VISA.NET (Ivi.Visa) over this runtime's own C API.
+       net462 goes into the GAC for .NET Framework programs; net6.0 into the IVI VendorAssemblies
+       tree for .NET (6+) programs. tools/build_dotnet.sh sets Version from the commit count. -->
+  <PropertyGroup>
+    <TargetFrameworks>net462;net6.0</TargetFrameworks>
+    <AssemblyName>Symbiotic.Visa</AssemblyName>
+    <RootNamespace>Symbiotic.Visa</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>..\Symbiotic.Visa.snk</AssemblyOriginatorKeyFile>
+    <Version>0.1.0.0</Version>
+    <Company>Viper488</Company>
+    <Product>Viper488 Symbiotic VISA</Product>
+    <Description>VISA.NET for the Viper488 Symbiotic VISA runtime</Description>
+    <Copyright>Viper488</Copyright>
+    <!-- A plugin: the GRM loads it into its own AssemblyLoadContext by its deps.json. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compile against it, never ship it: a second Ivi.Visa.dll next to ours would be loaded into
+         the plugin context, and its IResourceManager would not be the caller's. -->
+    <PackageReference Include="IviFoundation.Visa" Version="8.0.0" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

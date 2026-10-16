@@ -1,0 +1,31 @@
+# Viper488 Symbiotic VISA: let the user's own daemon (symbioticd) open the USB devices it drives.
+# The user at the machine's seat gets them (the uaccess tag: logind gives that user an ACL on the
+# node). A machine with no seat -- WSL, a headless lab machine reached over ssh -- needs
+# 71-symbiotic-everyone.rules beside this one, which opens them to every account (MODE 0666).
+#
+# Installed by linux/install-udev.sh into /etc/udev/rules.d, or by the .deb into /usr/lib/udev/rules.d.
+# No rule here unbinds a kernel driver: a device the kernel's usbtmc or linux-gpib holds is left to
+# it. A USBTMC instrument the kernel's usbtmc driver has is used through that driver's device file
+# instead.
+
+# The kernel usbtmc driver's device files (/dev/usbtmcN, the usbmisc class).
+SUBSYSTEM=="usbmisc", KERNEL=="usbtmc*", TAG+="uaccess", GOTO="symbiotic_end"
+
+SUBSYSTEM!="usb", GOTO="symbiotic_end"
+ENV{DEVTYPE}!="usb_device", GOTO="symbiotic_end"
+
+# Viper488 (the three firmware PIDs adapter.rs accepts)
+ATTR{idVendor}=="1209", ATTR{idProduct}=="0405|0406|0407", ENV{SYMBIOTIC_DEVICE}="1"
+# NI GPIB-USB-HS
+ATTR{idVendor}=="3923", ATTR{idProduct}=="709b", ENV{SYMBIOTIC_DEVICE}="1"
+# Keysight 82357B: blank (the daemon downloads the firmware) and running
+ATTR{idVendor}=="0957", ATTR{idProduct}=="0518|0718", ENV{SYMBIOTIC_DEVICE}="1"
+# CONTEC GP-IB(USB)FL
+ATTR{idVendor}=="06ce", ATTR{idProduct}=="8314", ENV{SYMBIOTIC_DEVICE}="1"
+# USBTMC instruments: any device with a USBTMC interface (class 0xFE, subclass 0x03)
+IMPORT{builtin}="usb_id"
+ENV{ID_USB_INTERFACES}=="*:fe03??:*", ENV{SYMBIOTIC_DEVICE}="1"
+
+ENV{SYMBIOTIC_DEVICE}=="1", TAG+="uaccess"
+
+LABEL="symbiotic_end"

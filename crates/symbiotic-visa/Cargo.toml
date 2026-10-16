@@ -1,0 +1,27 @@
+[package]
+name = "symbiotic-visa"
+description = "Viper488 Symbiotic VISA Runtime: the VISA C API (visa64.dll) over symbiotic-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# The file a VISA client loads: visa64.dll on Windows.
+name = "visa64"
+# Also an rlib: symbiotic-config calls the C API in-process for its interactive I/O.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+symbiotic-core = { path = "../symbiotic-core" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+cc = "1.4.7"
+
+[lints]
+workspace = true

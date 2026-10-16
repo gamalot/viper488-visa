@@ -1,0 +1,16 @@
+#!/bin/sh
+# Forget the rules, the one for every account too if it is still the package's own. A device plugged in now keeps the
+# mode they gave it until it is next plugged in: a "change" event does not take back a mode no rule sets any more, only
+# "add" resets it.
+set -e
+everyone=/etc/udev/rules.d/71-symbiotic-everyone.rules
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+    if [ -e "$everyone" ] && grep -q 'SYMBIOTIC_DEVICE' "$everyone"; then
+        rm -f "$everyone"
+    fi
+    rm -rf /var/lib/viper488-symbiotic-visa
+fi
+if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules 2>/dev/null || true
+fi
+exit 0

@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  symbiotic.wxs: the MSI, for all users (tools/build_msi.sh builds it with wixl, from WSL).
+
+  Into C:\Program Files\Symbiotic unless the user chooses another folder (tools/msi_ui.py adds the pages: welcome,
+  features and location, ready, progress; nothing is installed before Install), the folder on the system PATH; the configuration shared in
+  %ProgramData%\Symbiotic (created here, modifiable by Users), named in HKLM\SOFTWARE\Viper488\Symbiotic\ConfigDir
+  for the runtime (paths.rs). Each user still runs a daemon of their own. The registrations with the IVI VISA
+  router, VISA.NET and VISA COM are optional features, off by default (they bring every scanning program to the
+  instruments: the user's decision):
+      msiexec /i symbiotic-machine-<v>.msi ADDLOCAL=Runtime,UsbtmcWinUsb,RegisterVisa,RegisterVisaNet,RegisterVisaCom
+  and are taken back when their feature is removed or the product uninstalled. UsbtmcWinUsb, on by default, binds
+  every USBTMC instrument that has no driver to WinUSB (windows\usbtmc-winusb.ps1, as SYSTEM); one on a vendor's
+  driver stays there.
+
+  In it: the DLLs (visa64 and visa32), the daemon beside them (the DLL starts it from its own directory),
+  symbiotic-ctl, symbiotic-config (with a Start menu shortcut), the C headers and import libraries, the VISA.NET and VISA COM assemblies (dotnet\) and the
+  Windows scripts. The user's own files (lan.conf, aliases.conf, bridges.conf, speed.conf, firmware\) are not
+  the MSI's and stay. The Keysight 82357B firmware image is not in it and must never be: it is Keysight's.
+
+  symbiotic-config is a web page in Microsoft's WebView2 runtime. Windows 11 has it; where it is missing (older
+  Windows 10) Microsoft's Evergreen bootstrapper, installed in windows\ (wixl runs an executable only from an
+  installed file, not from the Binary table), fetches and installs it for the machine, as SYSTEM. It
+  needs the internet; its failure does not fail this install.
+-->
+  <?define ProductName = "Viper488 Symbiotic VISA (all users)" ?>
+  <?define UpgradeCode = "AADF2F08-7FBA-4DA9-A3B6-64CFB8E5DC35" ?>
+  <?define Base = "ProgramFiles64Folder" ?>
+  <?define Root = "HKLM" ?>
+  <?define Key = "SOFTWARE\Viper488\Symbiotic" ?>
+  <?define GuidMain = "C595331D-9132-4AF2-84CE-256A49BC0072" ?>
+  <?define GuidInclude = "B0DF49E5-12BF-41B4-9C1A-E71F44016EB0" ?>
+  <?define GuidDotnetDirs = "927CE242-C5D0-4DBA-88BE-51FB5C685626" ?>
+  <?define GuidDotnetFw = "9DB8E110-3E62-4FF8-BF20-42A4B8C2AB1B" ?>
+  <?define GuidDotnetCore = "5D1357D8-4572-4E22-BD7F-159E7AB45F73" ?>
+  <?define GuidScripts = "5CAF5D7A-9651-4936-AE2D-7D236AC9B2B9" ?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="$(var.ProductName)" Language="1033" Version="$(var.Version)"
+           Manufacturer="Viper488" UpgradeCode="$(var.UpgradeCode)">
+    <!-- wixl writes ALLUSERS=1 for perMachine itself (a second one fails the build). -->
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="Viper488 Symbiotic VISA runtime (all users)" />
+    <!-- Two builds of one commit share a version: the second replaces the first, not beside it. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer Viper488 Symbiotic VISA is already installed." />
+    <Media Id="1" Cabinet="symbiotic.cab" EmbedCab="yes" />
+    <!-- Overwrite what is there, whatever its version: the DLLs and executables carry the MSI's
+         version (tools/winres.rs; build_msi.sh writes it into the File table), but two builds of
+         one commit share it, and the headers, libraries and scripts have none. -->
+    <Property Id="REINSTALLMODE" Value="amus" />
+
+    <!-- WebView2 is installed when its client key has a version ("pv"): the machine's (under WOW6432Node,
+         which a 32-bit search reads) or this user's. -->
+    <Property Id="WEBVIEW2_MACHINE">
+      <RegistrySearch Id="WebView2Machine" Root="HKLM" Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Win64="no" />
+    </Property>
+    <!-- The installed version's symbiotic-quiet, if it has one: an install's console commands go through it, so that none
+         opens a window on the user's desktop. The ones that run before this version's files are there (stopping the
+         daemons) use the installed one; over a version without it they run directly. -->
+    <Property Id="OLDQUIET">
+      <RegistrySearch Id="OldQuiet" Root="$(var.Root)" Key="$(var.Key)" Name="Quiet" Type="raw" Win64="yes" />
+    </Property>
+    <!-- Where the installed version is: an upgrade goes there unless the user (the Custom setup page, tools/msi_ui.py) or
+         the command line chose another place (SetInstallDir). -->
+    <Property Id="PREVIOUSINSTALLDIR">
+      <RegistrySearch Id="PreviousInstallDir" Root="$(var.Root)" Key="$(var.Key)" Name="InstallDir" Type="raw" Win64="yes" />
+    </Property>
+    <Property Id="WEBVIEW2_USER">
+      <RegistrySearch Id="WebView2User" Root="HKCU" Key="Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" />
+    </Property>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="$(var.Base)">
+        <Directory Id="INSTALLDIR" Name="Symbiotic">
+          <Component Id="Main" Guid="$(var.GuidMain)" Win64="yes">
+            <File Id="visa64.dll" Source="$(var.Src)/visa64.dll" />
+            <File Id="visa32.dll" Source="$(var.Src)/visa32.dll" />
+            <File Id="symbioticd.exe" Source="$(var.Src)/symbioticd.exe" />
+            <File Id="symbiotic_ctl.exe" Source="$(var.Src)/symbiotic-ctl.exe" />
+            <File Id="symbiotic_config.exe" Source="$(var.Src)/symbiotic-config.exe">
+              <Shortcut Id="ConfigShortcut" Directory="ProgramMenuFolder" Target="[#symbiotic_config.exe]" Name="Viper488 Symbiotic VISA" Description="Instruments, their console, adapters, LAN, serial controllers, aliases" WorkingDirectory="INSTALLDIR" Advertise="no" />
+            </File>
+            <File Id="visa64.lib" Source="$(var.Src)/visa64.lib" />
+            <File Id="visa32.lib" Source="$(var.Src)/visa32.lib" />
+            <Environment Id="SystemPath" Name="PATH" Value="[INSTALLDIR]" Part="last" Action="set" System="yes" Permanent="no" />
+            <RegistryValue Root="HKLM" Key="$(var.Key)" Name="ConfigDir" Type="string" Value="[CommonAppDataFolder]Symbiotic" />
+            <RegistryValue Root="$(var.Root)" Key="$(var.Key)" Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+            <RemoveFolder Id="RemoveInstallDir" On="uninstall" />
+          </Component>
+          <!-- One marker component per optional registration: its feature's state is the registration's. -->
+          <Component Id="RegIvi" Guid="AE7A9563-E792-4713-9220-956F57BAED0E" Win64="yes">
+            <RegistryValue Root="HKLM" Key="$(var.Key)\Registered" Name="IviRouter" Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+          <Component Id="RegNet" Guid="5B01837E-C7D2-468A-A192-694304BD2EB1" Win64="yes">
+            <RegistryValue Root="HKLM" Key="$(var.Key)\Registered" Name="VisaNet" Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+          <Component Id="RegCom" Guid="31343276-A36C-43DF-A90F-43465798747F" Win64="yes">
+            <RegistryValue Root="HKLM" Key="$(var.Key)\Registered" Name="VisaCom" Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+          <!-- The same, for the USBTMC instruments' WinUSB package (usbtmc-winusb.ps1). -->
+          <Component Id="RegUsbtmc" Guid="0E6B3C1D-7A52-4F0E-9B6D-3C8E2A41F5D7" Win64="yes">
+            <RegistryValue Root="HKLM" Key="$(var.Key)\Registered" Name="UsbtmcWinUsb" Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+          <Directory Id="IncludeDir" Name="include">
+            <Component Id="Include" Guid="$(var.GuidInclude)" Win64="yes">
+              <File Id="visa.h" Source="$(var.Src)/include/visa.h" />
+              <File Id="visatype.h" Source="$(var.Src)/include/visatype.h" />
+              <RegistryValue Root="$(var.Root)" Key="$(var.Key)" Name="Include" Type="string" Value="[IncludeDir]" KeyPath="yes" />
+              <RemoveFolder Id="RemoveIncludeDir" On="uninstall" />
+            </Component>
+          </Directory>
+          <Directory Id="DotnetDir" Name="dotnet">
+            <!-- Only to take the emptied dotnet folder away (wixl knows no RemoveFolder Directory=). -->
+            <Component Id="DotnetDirs" Guid="$(var.GuidDotnetDirs)" Win64="yes">
+              <RemoveFolder Id="RemoveDotnetDir" On="uninstall" />
+              <RegistryValue Root="$(var.Root)" Key="$(var.Key)" Name="dotnet" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+            <Directory Id="DotnetFwDir" Name="net462">
+              <Component Id="DotnetFw" Guid="$(var.GuidDotnetFw)" Win64="yes">
+                <File Id="Symbiotic.Visa.net462.dll" Name="Symbiotic.Visa.dll" Source="$(var.Src)/dotnet/net462/Symbiotic.Visa.dll" />
+                <File Id="Symbiotic.VisaCom.dll" Name="Symbiotic.VisaCom.dll" Source="$(var.Src)/dotnet/net462/Symbiotic.VisaCom.dll" />
+                <RemoveFolder Id="RemoveDotnetFwDir" On="uninstall" />
+                <RegistryValue Root="$(var.Root)" Key="$(var.Key)" Name="dotnet-net462" Type="integer" Value="1" KeyPath="yes" />
+              </Component>
+            </Directory>
+            <Directory Id="DotnetCoreDir" Name="net6.0">
+              <Component Id="DotnetCore" Guid="$(var.GuidDotnetCore)" Win64="yes">
+                <File Id="Symbiotic.Visa.net6.dll" Name="Symbiotic.Visa.dll" Source="$(var.Src)/dotnet/net6.0/Symbiotic.Visa.dll" />
+                <File Id="Symbiotic.Visa.net6.deps.json" Name="Symbiotic.Visa.deps.json" Source="$(var.Src)/dotnet/net6.0/Symbiotic.Visa.deps.json" />
+                <RemoveFolder Id="RemoveDotnetCoreDir" On="uninstall" />
+                <RegistryValue Root="$(var.Root)" Key="$(var.Key)" Name="dotnet-net6" Type="integer" Value="1" KeyPath="yes" />
+              </Component>
+            </Directory>
+          </Directory>
+          <Directory Id="ScriptsDir" Name="windows">
+            <Component Id="Scripts" Guid="$(var.GuidScripts)" Win64="yes">
+              <File Id="winusb_bind.ps1" Source="$(var.Src)/windows/winusb-bind.ps1" />
+              <File Id="winusb_unbind.ps1" Source="$(var.Src)/windows/winusb-unbind.ps1" />
+              <File Id="register_visa.ps1" Source="$(var.Src)/windows/register-visa.ps1" />
+              <File Id="register_visanet.ps1" Source="$(var.Src)/windows/register-visanet.ps1" />
+              <File Id="register_visacom.ps1" Source="$(var.Src)/windows/register-visacom.ps1" />
+              <File Id="usbtmc_winusb.ps1" Source="$(var.Src)/windows/usbtmc-winusb.ps1" />
+              <File Id="webview2_setup.exe" Name="MicrosoftEdgeWebview2Setup.exe" Source="$(var.Src)/windows/MicrosoftEdgeWebview2Setup.exe" />
+              <File Id="symbiotic_quiet.exe" Source="$(var.Src)/windows/symbiotic-quiet.exe" />
+              <RegistryValue Root="$(var.Root)" Key="$(var.Key)" Name="Scripts" Type="string" Value="[ScriptsDir]" KeyPath="yes" />
+              <!-- Where symbiotic-quiet is, for the next install's commands that run before its own files are there (OLDQUIET). -->
+              <RegistryValue Root="$(var.Root)" Key="$(var.Key)" Name="Quiet" Type="string" Value="[ScriptsDir]symbiotic-quiet.exe" />
+              <RemoveFolder Id="RemoveScriptsDir" On="uninstall" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+      <!-- The shared configuration. Kept on uninstall (it is the users' own). -->
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="DATADIR" Name="Symbiotic">
+          <Component Id="Data" Guid="CFC61247-D892-4AA6-8601-6A198A372E8F" Win64="yes" Permanent="yes">
+            <CreateFolder />
+            <RegistryValue Root="HKLM" Key="$(var.Key)" Name="DataDir" Type="string" Value="[DATADIR]" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <!-- Every user's daemon holds the exe it runs from: end them all, as SYSTEM (they exit when idle anyway). -->
+    <!-- An executable-in-a-property custom action's property is the bare path: quoted, Windows Installer
+         cannot start it (error 1721). -->
+    <!-- First the installing user's daemon is asked to stop, as that user (a clean stop lets go of the adapters the way a
+         close does; SYSTEM cannot reach a user's daemon, whose pipe is named after the user); taskkill then ends any left,
+         other users' included. -->
+    <CustomAction Id="SetInstallDir" Property="INSTALLDIR" Value="[PREVIOUSINSTALLDIR]" />
+    <CustomAction Id="SetCtlPath" Property="CTL" Value="[INSTALLDIR]symbiotic-ctl.exe" />
+    <CustomAction Id="StopDaemon" Property="CTL" ExeCommand="stop" Return="ignore" />
+    <CustomAction Id="StopDaemonQuietly" Property="OLDQUIET" ExeCommand="&quot;[INSTALLDIR]symbiotic-ctl.exe&quot; stop" Return="ignore" />
+    <CustomAction Id="SetTaskkill" Property="TASKKILL" Value="[System64Folder]taskkill.exe" />
+    <CustomAction Id="StopDaemons" Property="TASKKILL" ExeCommand="/F /IM symbioticd.exe" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="StopDaemonsQuietly" Property="OLDQUIET" ExeCommand="&quot;[System64Folder]taskkill.exe&quot; /F /IM symbioticd.exe" Execute="deferred" Impersonate="no" Return="ignore" />
+    <!-- Every command from here on is this version's symbiotic-quiet running the program named first (quoted: it is
+         handed the rest of the line as it is). -->
+    <CustomAction Id="SetQuiet" Property="QUIET" Value="[ScriptsDir]symbiotic-quiet.exe" />
+    <!-- The shared configuration directory: every user may change it. -->
+    <CustomAction Id="OpenData" Property="QUIET" ExeCommand="&quot;[System64Folder]icacls.exe&quot; &quot;[DATADIR].&quot; /grant *S-1-5-32-545:(OI)(CI)M" Execute="deferred" Impersonate="no" Return="ignore" />
+    <!-- The registrations: the scripts in windows\, as SYSTEM, with this install's paths. -->
+    <CustomAction Id="RegisterIvi" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visa.ps1&quot; -Dll &quot;[INSTALLDIR]visa64.dll&quot;" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UnregisterIvi" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visa.ps1&quot; -Uninstall" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RegisterNet" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visanet.ps1&quot; -From &quot;[DotnetDir].&quot;" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UnregisterNet" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visanet.ps1&quot; -Uninstall" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RegisterCom" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visacom.ps1&quot; -Dll &quot;[DotnetFwDir]Symbiotic.VisaCom.dll&quot;" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UnregisterCom" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visacom.ps1&quot; -Uninstall -Dll &quot;[DotnetFwDir]Symbiotic.VisaCom.dll&quot;" Execute="deferred" Impersonate="no" Return="ignore" />
+    <!-- USBTMC instruments without a driver onto WinUSB: a class-matched package dated 2000, so that a vendor's USBTMC
+         driver always outranks it, signed by a certificate made on this machine whose key the script then deletes. It
+         replaces an older package of ours itself, so an upgrade does not take it away first (as with the registrations). -->
+    <CustomAction Id="InstallUsbtmc" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]usbtmc-winusb.ps1&quot; -Version [ProductVersion]" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UninstallUsbtmc" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]usbtmc-winusb.ps1&quot; -Uninstall" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="InstallWebView2" FileKey="webview2_setup.exe" ExeCommand="/silent /install" Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <!-- Numbered, as is RemoveExistingProducts below, so wixl does not sequence them itself. -->
+      <!-- Before CostFinalize, which resolves INSTALLDIR. The UI sequence runs it too (tools/msi_ui.py); after the pages
+           INSTALLDIR is set, so this does nothing then. -->
+      <Custom Action="SetInstallDir" Sequence="990">PREVIOUSINSTALLDIR AND NOT INSTALLDIR</Custom>
+      <Custom Action="SetTaskkill" Sequence="1001" />
+      <!-- After CostFinalize (1000), which gives INSTALLDIR and ScriptsDir their values. -->
+      <Custom Action="SetQuiet" Sequence="1002" />
+      <Custom Action="SetCtlPath" Sequence="1004" />
+      <Custom Action="StopDaemon" Sequence="1005">NOT OLDQUIET</Custom>
+      <Custom Action="StopDaemonQuietly" Sequence="1006">OLDQUIET</Custom>
+      <!-- Between InstallValidate and InstallInitialize, where MajorUpgrade puts it. -->
+      <RemoveExistingProducts Sequence="1401" />
+      <!-- Numbered too, between InstallInitialize (1500) and RemoveFiles (3500), so an uninstall runs them while the
+           scripts and symbiotic-quiet are still there; tools/check.sh holds them there. -->
+      <Custom Action="StopDaemons" Sequence="1501">NOT OLDQUIET</Custom>
+      <Custom Action="StopDaemonsQuietly" Sequence="1502">OLDQUIET</Custom>
+      <!-- Taken back while the scripts and files are still there: before RemoveFiles. Not when an upgrade
+           removes this version: the new one registers again, and unregistering in between would take the
+           user's choices out of the router's conflict table. -->
+      <Custom Action="UnregisterIvi" Sequence="1503">(&amp;RegisterVisa=2) AND (!RegisterVisa=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="UnregisterNet" Sequence="1504">(&amp;RegisterVisaNet=2) AND (!RegisterVisaNet=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="UnregisterCom" Sequence="1505">(&amp;RegisterVisaCom=2) AND (!RegisterVisaCom=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="UninstallUsbtmc" Sequence="1506">(&amp;UsbtmcWinUsb=2) AND (!UsbtmcWinUsb=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="OpenData" After="InstallFiles">NOT REMOVE</Custom>
+      <Custom Action="RegisterIvi" After="OpenData">&amp;RegisterVisa=3</Custom>
+      <Custom Action="RegisterNet" After="RegisterIvi">&amp;RegisterVisaNet=3</Custom>
+      <Custom Action="RegisterCom" After="RegisterNet">&amp;RegisterVisaCom=3</Custom>
+      <Custom Action="InstallUsbtmc" After="RegisterCom">&amp;UsbtmcWinUsb=3</Custom>
+      <Custom Action="InstallWebView2" After="InstallUsbtmc">NOT REMOVE AND NOT WEBVIEW2_MACHINE AND NOT WEBVIEW2_USER</Custom>
+      <RemoveFolders Sequence="3600" />
+    </InstallExecuteSequence>
+
+    <!-- Titles and descriptions are what the Custom setup page shows (tools/msi_ui.py). -->
+    <Feature Id="Runtime" Title="Viper488 Symbiotic VISA" Level="1" ConfigurableDirectory="INSTALLDIR" Absent="disallow" AllowAdvertise="no"
+             Description="The VISA library (visa64.dll, visa32.dll), its background service, the configuration window, symbiotic-ctl, the C headers and import libraries, and the VISA.NET and VISA COM assemblies. Required.">
+      <ComponentRef Id="Main" />
+      <ComponentRef Id="Include" />
+      <ComponentRef Id="Scripts" />
+      <ComponentRef Id="DotnetDirs" />
+      <ComponentRef Id="DotnetFw" />
+      <ComponentRef Id="DotnetCore" />
+      <ComponentRef Id="Data" />
+    </Feature>
+    <Feature Id="UsbtmcWinUsb" Title="USBTMC instruments on WinUSB" Level="1" AllowAdvertise="no"
+             Description="USBTMC instruments with no driver are given Windows' WinUSB driver, so this VISA can use them; those on a vendor's driver keep it. Installs a driver package signed by a certificate made on this computer, whose private key is then deleted."><ComponentRef Id="RegUsbtmc" /></Feature>
+    <Feature Id="RegisterVisa" Title="Register with the IVI VISA router" Level="1000" AllowAdvertise="no"
+             Description="Programs that load visa64.dll or visa32.dll by name find this VISA through the IVI VISA router. Programs that scan every VISA's instruments then reach yours too."><ComponentRef Id="RegIvi" /></Feature>
+    <Feature Id="RegisterVisaNet" Title="Register the VISA.NET implementation" Level="1000" AllowAdvertise="no"
+             Description="Registers this VISA's VISA.NET (Ivi.Visa) implementation, for .NET programs."><ComponentRef Id="RegNet" /></Feature>
+    <Feature Id="RegisterVisaCom" Title="Register the VISA COM implementation" Level="1000" AllowAdvertise="no"
+             Description="Registers this VISA's VISA COM implementation, for COM programs and IVI-COM drivers."><ComponentRef Id="RegCom" /></Feature>
+  </Product>
+</Wix>

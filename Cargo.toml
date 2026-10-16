@@ -1,0 +1,24 @@
+[workspace]
+members = ["crates/symbiotic-core", "crates/symbiotic-visa", "crates/symbiotic-config"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# Thin LTO, not fat: relinking takes about half the time, for a slightly larger executable.
+[profile.release]
+opt-level = "z"
+lto = "thin"
+strip = true
+
+# tools/check.sh holds the workspace to `cargo clippy -- -D warnings`. Allowed here, for good:
+# the C API's unsafe exports are specified by VPP-4.3, not by a `# Safety` section each; its
+# argument counts and the types of its tables are the specification's; and `Ok(put(..))`-style
+# returns of a unit-valued write are how the attribute code reads.
+[workspace.lints.clippy]
+missing_safety_doc = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+unit_arg = "allow"

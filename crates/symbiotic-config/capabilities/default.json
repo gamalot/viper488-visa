@@ -1,0 +1,7 @@
+{
+  "identifier": "default",
+  "description": "The main window, the console windows, the pictures window, the aliases window and the I/O trace window: Tauri's core defaults (events included: the main window tells the consoles which sessions it closed), the page's zoom (Ctrl+plus/minus, Settings), a window's title (the console's, the pictures', the aliases' and the trace's), and what the page's own title bar does: drag the window, minimize, maximize, close; our own commands need no permission entry.",
+  "windows": ["main", "console-*", "pictures", "aliases", "trace"],
+  "permissions": ["core:default", "core:webview:allow-set-webview-zoom", "core:window:allow-set-title",
+    "core:window:allow-start-dragging", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-close"]
+}

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Every user's daemon is stopped before its files are replaced or removed, as the MSI does: an old daemon would
+# otherwise go on serving the new library.
+set -e
+pkill -x symbioticd 2>/dev/null || true
+exit 0

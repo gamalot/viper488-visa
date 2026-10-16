@@ -1,0 +1,15 @@
+Package: viper488-symbiotic-visa
+Version: @VERSION@
+Architecture: amd64
+Maintainer: Tommy Huang <gamalot@gmail.com>
+Depends: libc6 (>= 2.34), libgcc-s1, libwebkit2gtk-4.1-0, libgtk-3-0
+Recommends: fonts-noto-cjk
+Section: electronics
+Priority: optional
+Description: VISA library for GPIB adapters, USBTMC, serial and LAN instruments
+ Viper488 Symbiotic VISA Runtime: the VISA C API (libvisa64.so) for GPIB instruments behind
+ Viper488, NI GPIB-USB-HS, Keysight 82357B and CONTEC GP-IB(USB)FL adapters and Prologix/AR488
+ bridges, USBTMC instruments, serial ports and LAN instruments (VXI-11, HiSLIP, SOCKET).
+ Installed in /usr/lib/symbiotic, with symbiotic-ctl and the configuration window
+ symbiotic-config (a web page in WebKitGTK; fonts-noto-cjk for its Chinese). It does not
+ take the system's libvisa.so name.

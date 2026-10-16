@@ -1,0 +1,9 @@
+target/
+firmware/*.hex
+__pycache__/
+tests/logs/
+windows/trace/
+dotnet/**/bin/
+dotnet/**/obj/
+crates/symbiotic-config/gen/
+.release-base

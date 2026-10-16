@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Viper488 Symbiotic VISA
+Comment=Instruments, their console, adapters, LAN, serial controllers, aliases
+Icon=symbiotic-config
+Exec=/usr/lib/symbiotic/symbiotic-config
+Terminal=false
+Categories=Development;Electronics;

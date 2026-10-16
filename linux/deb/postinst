@@ -1,0 +1,32 @@
+#!/bin/sh
+# The device rules: the user at the seat always (70-symbiotic.rules, uaccess); every account too
+# (71-symbiotic-everyone.rules, in /etc) where there is no seat to give them to -- WSL -- and where an earlier package
+# gave them to everyone, so that an upgrade takes nothing away. The choice is made once and recorded; the administrator
+# changes it by adding or removing the file in /etc.
+set -e
+everyone=/etc/udev/rules.d/71-symbiotic-everyone.rules
+chosen=/var/lib/viper488-symbiotic-visa/udev-chosen
+if [ "$1" = configure ] && [ ! -e "$chosen" ]; then
+    if grep -qi microsoft /proc/version 2>/dev/null || [ -n "${2:-}" ]; then
+        install -m 0644 /usr/share/viper488-symbiotic-visa/71-symbiotic-everyone.rules "$everyone"
+    fi
+    mkdir -p "$(dirname "$chosen")"
+    touch "$chosen"
+fi
+# Apply the rules to the devices already plugged in (no udev in a container: not an error).
+if [ "$1" = configure ] && command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger --subsystem-match=usb --action=change 2>/dev/null || true
+fi
+# The daemons prerm stopped come back: each signed-in user whose own symbiotic service is enabled
+# (autostart.rs, `symbiotic-ctl share autostart on`) has it started again. Their service manager
+# counts that SIGTERM as a clean end and would not restart it, and nobody would serve their shared
+# aliases until they next signed in. Nothing is started for anyone who did not enable it.
+if [ "$1" = configure ] && command -v loginctl >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
+    for u in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+        if systemctl --user -M "$u@" is-enabled --quiet symbiotic.service 2>/dev/null; then
+            systemctl --user -M "$u@" start symbiotic.service 2>/dev/null || true
+        fi
+    done
+fi
+exit 0

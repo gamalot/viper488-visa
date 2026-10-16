@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- VISA COM (VPP-4.3.4) over this runtime's own C API.
+       An in-process COM server for .NET Framework, AnyCPU so 32- and 64-bit hosts both load it;
+       windows/register-visacom.ps1 registers it with regasm (both bitnesses). -->
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>Symbiotic.VisaCom</AssemblyName>
+    <RootNamespace>Symbiotic.VisaCom</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>..\Symbiotic.Visa.snk</AssemblyOriginatorKeyFile>
+    <Version>0.1.0.0</Version>
+    <Company>Viper488</Company>
+    <Product>Viper488 Symbiotic VISA</Product>
+    <Description>VISA COM for the Viper488 Symbiotic VISA runtime</Description>
+    <Copyright>Viper488</Copyright>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The VISA COM interop assembly the IVI shared components install (not in the GAC). -->
+    <VisaComPia Condition="'$(VisaComPia)' == ''">$(ProgramW6432)\IVI Foundation\VISA\VisaCom64\Primary Interop Assemblies\Ivi.Visa.Interop.dll</VisaComPia>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embedded: the interfaces are copied into this assembly and match the callers' by type
+         equivalence, so neither the interop assembly nor a copy of it is needed at run time. -->
+    <Reference Include="Ivi.Visa.Interop">
+      <HintPath>$(VisaComPia)</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+    <!-- The same C API binding as VISA.NET's: loaded by full path, never by name. -->
+    <Compile Include="..\Symbiotic.Visa\Native.cs" Link="Native.cs" />
+  </ItemGroup>
+
+</Project>
