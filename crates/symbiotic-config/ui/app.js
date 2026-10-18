@@ -18,7 +18,7 @@ let selected = { kind: "start" }; // what the right side shows: the start page u
 let about = null;
 // Which features this window shows (features.conf: sharing, the service page, the I/O trace, an instrument's display name,
 // binding an alias to a unit, the version in the status bar, the counts in the tree); each at its default until told.
-let features = { sharing: false, service: false, trace: false, display_name: false, alias_binding: false, version: true, tree_counts: false };
+let features = { sharing: false, service: true, trace: false, display_name: false, alias_binding: false, version: true, tree_counts: false };
 let listAll = false; // viFindRsrc lists the absent instruments too (instruments.conf, list=all)
 
 let aliasList = [];      // [{alias, resource, group}]: aliases.conf, and the group's for network instruments (group: true)
@@ -1295,14 +1295,20 @@ function toolsMenu(button) {
   ].filter(Boolean).filter((x, i, a) => x !== "-" || a[i - 1] !== "-"), r.left, r.bottom + 4, button, t("action.tools"));
 }
 
+// The log's box follows the window's height; a log scrolled to its end stays at its end when the box changes size.
+const logResize = new ResizeObserver(es => { for (const e of es) if (e.target.dataset.atEnd !== "no") e.target.scrollTop = e.target.scrollHeight; });
+
 // What a user looks at, and sends, when something is wrong: the end of the daemon's log, and a bundle of everything
 // (diag.rs) written to the Downloads folder.
 function diagBox() {
   const log = need("diag:log", "log_tail", { lines: 40 });
   const text = log.value ? log.value[0] : "";
   const pre = el("pre", { class: "log mono diag-log", tabindex: "0", "data-scroll": "bottom" }, log.loading ? t("state.loading") : log.error ? log.error : text || t("diag.log_empty"));
+  pre.addEventListener("scroll", () => { pre.dataset.atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 2 ? "" : "no"; });
+  logResize.disconnect();
+  logResize.observe(pre);
   const path = log.value ? log.value[1] : "";
-  return tip(box(t("diag.title"),
+  const b = tip(box(t("diag.title"),
     el("div", { class: "bar-end" },
       el("button", { type: "button", class: "iconbtn", title: t("action.check_again"), "aria-label": t("action.check_again"), disabled: log.loading, onclick: () => { extra.delete("diag:log"); render(); } }, icon(REFRESH)),
       el("button", { type: "button", disabled: busy.has("diag"), onclick: makeBundle }, t("diag.bundle"))),
@@ -1312,7 +1318,9 @@ function diagBox() {
       bundlePath && !notes.get("diag").error ? el("button", { type: "button", onclick: showBundle }, t("diag.show")) : null) : null,
     pre,
     // At the box's foot, where Settings has the configuration folder.
-    path ? [el("div", { class: "divider" }), pathLine(t("diag.log"), path)] : null), t("diag.hint"));
+    path ? [el("div", { class: "divider" }), pathLine(t("diag.log"), path)] : null), t(features.sharing ? "diag.hint" : "diag.hint_local"));
+  b.classList.add("fill");
+  return b;
 }
 
 // A switch with its label and, under it, one line of what it does.
@@ -1333,11 +1341,13 @@ function serviceBox() {
       el("span", { class: "dot " + (running.value ? "ok" : "idle") }),
       el("span", { class: "grow" }, running.loading ? t("state.loading") : running.error ? running.error
         : t(running.value ? "service.now_running" : serviceStopped ? "service.now_stopped" : "service.now_idle"))),
-    noteEl("service")), t("service.hint"));
+    noteEl("service")), t(features.sharing ? "service.hint" : "service.hint_local"));
 }
 
-// Settings: whether a service that stays running lets go of the hardware when idle (daemon.conf).
+// Settings: whether a service that stays running lets go of the hardware when idle (daemon.conf). Only sharing or the
+// registry keeps a service running, so the row goes where the sharing page is hidden (features.conf).
 function releaseRow() {
+  if (!features.sharing) return [];
   const rel = need("service:release", "release_idle");
   const relBox = el("input", { type: "checkbox", checked: rel.value === true, disabled: busy.has("service:release") || rel.value === undefined });
   relBox.addEventListener("change", () => act("service:release", async () => {
@@ -1351,7 +1361,8 @@ function releaseRow() {
   ];
 }
 
-// The service's page (from the Tools menu, or the status bar): whether it runs, and the diagnostics.
+// The service's page (from the Tools menu, or the status bar): whether it runs, and the diagnostics. Its explanations
+// leave the group out where the sharing page is hidden (features.conf).
 function servicePane() {
   const running = need("service", "service_running");
   const pill = running.loading || running.error ? null : running.value ? ["ok", t("service.pill_running")] : ["idle", t(serviceStopped ? "service.pill_stopped" : "service.pill_idle")];

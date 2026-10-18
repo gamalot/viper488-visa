@@ -454,8 +454,11 @@ body.console-window { display: flex; flex-direction: column; }
 /* The unit an alias is bound to, under the alias in the names panel. */
 
 
-/* Settings' diagnostics: the end of the daemon's log, as it is written (long lines wrap). */
-.diag-log { margin: 0; padding: 8px 12px; max-height: 260px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+/* The service page's diagnostics: the end of the daemon's log, as it is written (long lines wrap). The box takes the
+   height the page has left, the log all of it that the box's other lines leave; 260px at least, what it had before. */
+.diag-log { margin: 0; padding: 8px 12px; flex: 1 1 260px; min-height: 260px; max-height: none; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+section.box.fill { flex: 1 0 auto; display: flex; flex-direction: column; }
+section.box.fill > .pad { flex: 1 0 auto; }
 
 /* The I/O trace window (trace.html): the table takes what the window has left and scrolls; its head stays. */
 #trace { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
