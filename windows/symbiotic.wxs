@@ -8,7 +8,7 @@
   for the runtime (paths.rs). Each user still runs a daemon of their own. The registrations with the IVI VISA
   router, VISA.NET and VISA COM are optional features, off by default (they bring every scanning program to the
   instruments: the user's decision):
-      msiexec /i symbiotic-machine-<v>.msi ADDLOCAL=Runtime,UsbtmcWinUsb,RegisterVisa,RegisterVisaNet,RegisterVisaCom
+      msiexec /i symbiotic-visa-<v>-windows-x64.msi ADDLOCAL=Runtime,UsbtmcWinUsb,RegisterVisa,RegisterVisaNet,RegisterVisaCom
   and are taken back when their feature is removed or the product uninstalled. UsbtmcWinUsb, on by default, binds
   every USBTMC instrument that has no driver to WinUSB (windows\usbtmc-winusb.ps1, as SYSTEM); one on a vendor's
   driver stays there.

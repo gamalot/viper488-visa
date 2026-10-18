@@ -2,7 +2,7 @@
 """msi_ui.py -- give the MSI wixl built an installer UI, which wixl cannot write. Run by tools/build_msi.sh after
 wixl:
 
-    python3 tools/msi_ui.py target/symbiotic-machine-<version>.msi
+    python3 tools/msi_ui.py target/symbiotic-visa-<version>-windows-x64.msi
 
 Writes the Dialog, Control, ControlEvent, EventMapping, TextStyle, UIText and ActionText tables, and adds rows to the
 Property, CustomAction and InstallUISequence tables wixl wrote (msibuild -i replaces a whole table, so those three

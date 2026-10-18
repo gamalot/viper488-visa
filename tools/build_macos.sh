@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build_macos.sh -- the macOS package, on a Mac: Symbiotic.app, universal (arm64 + x86_64), in a .dmg.
 # Needs the Command Line Tools and rustup; adds the x86_64 target if it is missing.
-#   tools/build_macos.sh               -> target/symbiotic-<version>.dmg
+#   tools/build_macos.sh               -> target/symbiotic-visa-<version>-macos-universal.dmg
 #   tools/build_macos.sh --app DIR     -> Symbiotic.app put in DIR (~/Applications while developing), no .dmg
 #
 #   Symbiotic.app/Contents/MacOS/symbiotic-config         the main program: the configuration window
@@ -145,7 +145,7 @@ Symbiotic.app to the Bin.
 
 https://github.com/gamalot/viper488-visa
 TXT
-out="target/symbiotic-$version.dmg"
+out="target/symbiotic-visa-$version-macos-universal.dmg"
 rm -f "$out"
 hdiutil create -quiet -volname "Viper488 Symbiotic VISA $version" -srcfolder "$dmgdir" -format UDZO "$out"
 echo "$out"

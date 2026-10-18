@@ -251,7 +251,7 @@ Features:
 
 A silent install chooses the features by name:
 
-    msiexec /i symbiotic-machine-<v>.msi /qn ADDLOCAL=Runtime,UsbtmcWinUsb,RegisterVisa,RegisterVisaNet,RegisterVisaCom
+    msiexec /i symbiotic-visa-<v>-windows-x64.msi /qn ADDLOCAL=Runtime,UsbtmcWinUsb,RegisterVisa,RegisterVisaNet,RegisterVisaCom
 
 pyvisa needs no path once the router registration is on (its default library is the router); before that,
 give it `C:\Program Files\Symbiotic\visa64.dll`. Never copy the DLL over `C:\Windows\System32\visa64.dll`:
@@ -267,7 +267,7 @@ The MSI is not code-signed yet, so Windows SmartScreen may warn when it is run f
 A `.deb` (amd64 or arm64, glibc 2.34 and later: Ubuntu 22.04, Debian 12, Raspberry Pi OS Bookworm and
 newer; arm64 needs a 64-bit system, and is tested on a Raspberry Pi 5):
 
-    sudo apt install ./viper488-symbiotic-visa_<v>_amd64.deb      # or _arm64.deb
+    sudo apt install ./symbiotic-visa-<v>-linux-amd64.deb      # or -linux-arm64.deb
 
 It installs `libvisa64.so`, the daemon, `symbiotic-ctl` and `symbiotic-config` in `/usr/lib/symbiotic`, links
 the two programs into `/usr/bin`, the headers into `/usr/include/symbiotic`, a menu entry (the window needs

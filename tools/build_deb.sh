@@ -4,7 +4,8 @@
 # it installs on Ubuntu 22.04 / Debian 12 / RHEL 9 era systems and later. Needs cargo-zigbuild and
 # zig (~/.local/zig), dpkg-deb and fakeroot.
 #
-#   tools/build_deb.sh        -> target/viper488-symbiotic-visa_0.1.<commits>_<arch>.deb
+#   tools/build_deb.sh        -> target/symbiotic-visa-0.1.<commits>-linux-<arch>.deb
+# (the package itself is named viper488-symbiotic-visa)
 #
 # Never with the Keysight 82357B firmware: it is Keysight's.
 set -euo pipefail
@@ -17,7 +18,7 @@ case "$(uname -m)" in
     *) echo "no package for $(uname -m)" >&2; exit 1 ;;
 esac
 VERSION="0.1.${SYMBIOTIC_BUILD:-$(git rev-list --count HEAD)}"
-OUT="target/viper488-symbiotic-visa_${VERSION}_${ARCH}.deb"
+OUT="target/symbiotic-visa-${VERSION}-linux-${ARCH}.deb"
 
 # Two runs: --bin would filter the other packages' targets out as well.
 cargo zigbuild -q --release --target "$TARGET.$GLIBC" -p symbiotic-core --bin symbioticd --bin symbiotic-ctl

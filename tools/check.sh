@@ -89,7 +89,7 @@ if command -v wixl >/dev/null && cargo xwin --version >/dev/null 2>&1 && command
     [ "$files" = "$want" ] || { echo "$msi holds: $files"; exit 1; }
     # The binaries are versioned in the MSI as in their resources (tools/winres.rs), the rest not.
     vers=$(msiinfo export "$msi" File | tail -n +4 | awk -F'\t' '$3 ~ /\.(dll|exe)$/ && $3 !~ /Webview2/ { print $5 }' | sort -u)
-    want_ver="$(basename "$msi" .msi | sed 's/^symbiotic-machine-//').0"
+    want_ver="$(basename "$msi" .msi | sed 's/^symbiotic-visa-//; s/-windows-x64$//').0"
     [ "$vers" = "$want_ver" ] || { echo "$msi's binaries are versioned '$vers', not $want_ver"; exit 1; }
     # For all users, and taken back out of the system's PATH on uninstall.
     msiinfo export "$msi" Property | grep -qP '^ALLUSERS\t1' || { echo "$msi is not for all users (ALLUSERS)"; exit 1; }

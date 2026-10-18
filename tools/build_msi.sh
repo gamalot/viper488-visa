@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build_msi.sh -- the MSI (for all users), from WSL: windows/symbiotic.wxs through wixl (apt: wixl), then the
 # installer's pages (tools/msi_ui.py).
-#   tools/build_msi.sh                -> target/symbiotic-machine-<version>.msi
+#   tools/build_msi.sh                -> target/symbiotic-visa-<version>-windows-x64.msi
 # ("machine" is accepted as an argument.)
 # Builds the 64-bit workspace, the 32-bit DLL and the VISA.NET assembly (tools/build_dotnet.sh) first, stages what the MSI holds, and never the
 # Keysight 82357B firmware (firmware/ is Keysight's image: not ours to distribute).
@@ -42,7 +42,7 @@ cp -r target/dotnet/net462 target/dotnet/net6.0 "$stage/dotnet/"
 if find "$stage" -iname '*.hex' -o -iname 'measat*' | grep -q .; then
     echo "refusing: a firmware image is in the staging directory"; exit 1
 fi
-out="target/symbiotic-machine-$version.msi"
+out="target/symbiotic-visa-$version-windows-x64.msi"
 wixl -a x64 -D Version="$version" -D Src="$stage" -o "$out" windows/symbiotic.wxs
 # wixl leaves the File table's Version column empty, which Windows Installer reads as "unversioned"
 # whatever the file holds; the DLLs and executables carry $version.0 (tools/winres.rs), so it is
