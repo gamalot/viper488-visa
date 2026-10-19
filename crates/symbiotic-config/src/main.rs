@@ -28,6 +28,19 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Sen
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
 }
 
+/// Where to save a file the user takes away (the diagnostics bundle, an exported trace): the system's save dialog over
+/// `window`, starting in the Downloads folder with `name`, showing files of `kind` (a name the page gives, and the
+/// extension). None when the user cancels. Called here, not by the page: it gets no dialog and no file system of its own.
+/// Blocks; the plugin shows it on the main thread.
+fn save_dialog(window: &tauri::WebviewWindow, name: &str, kind: &str, ext: &str) -> Result<Option<std::path::PathBuf>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut d = window.dialog().file().set_parent(window).set_file_name(name).add_filter(kind, &[ext]);
+    if let Some(dir) = symbiotic_core::paths::downloads() {
+        d = d.set_directory(dir);
+    }
+    d.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()
+}
+
 #[derive(Serialize)]
 struct Board {
     board: String,
@@ -709,6 +722,7 @@ fn main() {
     // The tree is what viFindRsrc finds; it must include what the setting keeps out of other programs' lists.
     instruments::see_everything();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(Sessions::default()))
         .manage(Arc::new(ConsoleInits::default()))
         .manage(Arc::new(CloseConsoles::default()))
@@ -733,6 +747,8 @@ fn main() {
                 if app.state::<Arc<CloseConsoles>>().0.load(std::sync::atomic::Ordering::Relaxed) {
                     app.exit(0);
                 }
+            } else if label == "trace" {
+                trace::window_closed();
             } else if label.starts_with("console-") {
                 // The console's sessions go with its window (a lock the instrument holds for one, a serial port).
                 if let Some(init) = app.state::<Arc<ConsoleInits>>().0.lock().unwrap().remove(label) {
@@ -832,8 +848,13 @@ fn main() {
             trace::trace_export,
             trace::open_trace
         ])
-        .run(tauri::generate_context!())
-        .expect("the window could not start");
+        .build(tauri::generate_context!())
+        .expect("the window could not start")
+        .run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                trace::program_ends();
+            }
+        });
 }
 
 #[cfg(test)]

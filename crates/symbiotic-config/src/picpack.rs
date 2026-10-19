@@ -78,9 +78,10 @@ fn stem(file: &str) -> &str {
     file.rsplit_once('.').map_or(file, |(s, _)| s)
 }
 
-/// Make a pack of `items` in the Downloads folder; its path.
+/// Make a pack of `items` where the user says in the save dialog (starting in the Downloads folder); its path, or None when
+/// the user cancels.
 #[tauri::command]
-pub async fn export_picture_pack(items: Vec<PackItem>) -> Result<String, String> {
+pub async fn export_picture_pack(window: tauri::WebviewWindow, items: Vec<PackItem>, kind: String) -> Result<Option<String>, String> {
     blocking(move || {
         let mut files: Vec<(String, Vec<u8>)> = Vec::new();
         let mut rules = String::from("# A picture pack: the rules, and beside each picture's name the image it is made of and what was done to it.\n");
@@ -112,10 +113,9 @@ pub async fn export_picture_pack(items: Vec<PackItem>) -> Result<String, String>
         files.insert(0, ("pictures.conf".to_string(), rules.into_bytes()));
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let local = (now as i64 + symbiotic_core::iotrace::local_offset_s()).max(0) as u64;
-        let dir = symbiotic_core::paths::downloads().ok_or("no Downloads folder or home directory")?;
-        let path = dir.join(format!("symbiotic-pictures-{}.zip", stamp(local)));
-        symbiotic_core::conffile::write(&path, symbiotic_core::diag::zip(&files, local)).map_err(|e| e.to_string())?;
-        Ok(path.display().to_string())
+        let Some(path) = crate::save_dialog(&window, &format!("symbiotic-pictures-{}.zip", stamp(local)), &kind, "zip")? else { return Ok(None) };
+        symbiotic_core::conffile::write(&path, symbiotic_core::diag::zip(&files, local)).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(Some(path.display().to_string()))
     })
     .await
 }

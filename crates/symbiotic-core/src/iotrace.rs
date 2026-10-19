@@ -16,6 +16,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const DATA_MAX: usize = 64;
 /// A process's file is set aside (as `.1`, the one before going) past this.
 const FILE_MAX: u64 = 8 << 20;
+/// Every process's records together: past this, the oldest files go when a process opens its own (a script
+/// run again and again with the trace on is a new file each time).
+const TOTAL_MAX: u64 = 64 << 20;
 const ON: &str = "on";
 const EXT: &str = "trace";
 
@@ -184,6 +187,7 @@ fn write_in(dir: &Path, r: &Record) -> io::Result<()> {
     }
     if g.is_none() {
         std::fs::create_dir_all(dir)?;
+        prune(dir, &path, TOTAL_MAX);
         let mut o = OpenOptions::new();
         o.create(true).append(true);
         #[cfg(unix)]
@@ -196,6 +200,25 @@ fn write_in(dir: &Path, r: &Record) -> io::Result<()> {
     // One write per record, so a reader never sees half a line it would then take for whole.
     let (_, f) = g.as_mut().unwrap();
     f.write_all(format!("{}\n", r.line()).as_bytes())
+}
+
+/// Take the oldest record files away, by when they were last written, until those left come to `max` at most;
+/// never `keep`. Another process whose file goes begins a new one at its next record, as after `clear`.
+fn prune(dir: &Path, keep: &Path, max: u64) {
+    let mut files: Vec<(SystemTime, u64, PathBuf)> = trace_files(dir)
+        .into_iter()
+        .filter_map(|p| std::fs::metadata(&p).ok().map(|m| (m.modified().unwrap_or(UNIX_EPOCH), m.len(), p)))
+        .collect();
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    files.sort();
+    for (_, len, p) in files {
+        if total <= max {
+            break;
+        }
+        if p != keep && std::fs::remove_file(&p).is_ok() {
+            total -= len;
+        }
+    }
 }
 
 // ---- the reading side (symbiotic-ctl) ----------------------------------------------------------
@@ -406,6 +429,27 @@ mod tests {
         assert_eq!(c.next(&d).len(), 1, "a file begun again after a clear is read from its start");
         set_on(&d, false).unwrap();
         assert!(!is_on(&d));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn past_the_total_the_oldest_files_go_but_never_the_one_being_begun() {
+        let d = std::env::temp_dir().join(format!("symbiotic-iotrace-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let t0 = SystemTime::now() - Duration::from_secs(100);
+        for (i, name) in ["1.trace.1", "1.trace", "2.trace", "3.trace", "4.trace"].iter().enumerate() {
+            let f = File::create(d.join(name)).unwrap();
+            f.set_len(100).unwrap();
+            f.set_modified(t0 + Duration::from_secs(i as u64)).unwrap();
+        }
+        std::fs::write(d.join("notes.txt"), "not a record").unwrap();
+        prune(&d, &d.join("1.trace"), 300);
+        let mut left: Vec<String> = std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        left.sort();
+        assert_eq!(left, ["1.trace", "3.trace", "4.trace", "notes.txt"], "the oldest went, the one kept stays though it is old");
+        prune(&d, &d.join("1.trace"), 300);
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 4, "under the total, nothing goes");
         let _ = std::fs::remove_dir_all(&d);
     }
 

@@ -25,7 +25,7 @@ pub struct Features {
 const KEYS: [(&str, bool); 7] = [
     ("sharing", false),
     ("service", true),
-    ("trace", false),
+    ("trace", true),
     ("display_name", false),
     ("alias_binding", false),
     ("version", true),
@@ -56,9 +56,11 @@ const HEAD: &str = "\
 # The window reads this when it starts.
 ";
 
-/// In every file written or seen since `service` became on by default. A file without it is from an earlier version, which
-/// wrote `service = off`: its `service` is turned on once and it gains this line.
-const SERVICE_ON: &str = "# service is on by default since 2026-10-18.";
+/// The keys that became on by default after an earlier version had written them off, each with the line that says so. A
+/// file without a key's line is from before: that key is turned on once and the file gains the line; an off written after
+/// that stays.
+const TURNED_ON: [(&str, &str); 2] =
+    [("service", "# service is on by default since 2026-10-18."), ("trace", "# trace is on by default since 2026-10-18.")];
 
 fn line(k: &str, on: bool) -> String {
     format!("{k} = {}\n", if on { "on" } else { "off" })
@@ -66,7 +68,7 @@ fn line(k: &str, on: bool) -> String {
 
 /// The file as the window first writes it: every key at its default.
 pub fn template() -> String {
-    HEAD.to_string() + SERVICE_ON + "\n" + &KEYS.iter().map(|&(k, d)| line(k, d)).collect::<String>()
+    HEAD.to_string() + &TURNED_ON.iter().map(|&(_, m)| format!("{m}\n")).collect::<String>() + &KEYS.iter().map(|&(k, d)| line(k, d)).collect::<String>()
 }
 
 /// The switches in `text`; a key it does not name has its default.
@@ -98,7 +100,7 @@ pub fn load() -> Features {
 }
 
 /// Write the file, every key at its default, when there is none; to one that is there, add each key it does not name, at
-/// its default. What it says already, and its comments, stay, but for `service` in a file from before `SERVICE_ON`.
+/// its default. What it says already, and its comments, stay, but for a key of `TURNED_ON` in a file without its line.
 pub fn create_in(p: &Path) -> io::Result<bool> {
     let there = p.exists();
     crate::conffile::update(p, |old| {
@@ -108,15 +110,19 @@ pub fn create_in(p: &Path) -> io::Result<bool> {
         let key = |l: &str| l.split_once('=').map(|(x, _)| x.trim().to_string()).filter(|_| !l.trim_start().starts_with('#'));
         let named = |k: &str| old.lines().any(|l| key(l).as_deref() == Some(k));
         let missing: Vec<(&str, bool)> = KEYS.into_iter().filter(|&(k, _)| !named(k)).collect();
-        let migrate = !old.lines().any(|l| l.trim() == SERVICE_ON);
-        if missing.is_empty() && !migrate {
+        let migrate: Vec<(&str, &str)> = TURNED_ON.into_iter().filter(|&(_, m)| !old.lines().any(|l| l.trim() == m)).collect();
+        if missing.is_empty() && migrate.is_empty() {
             return None;
         }
-        let mut text = if migrate {
-            let lines = old.lines().map(|l| if key(l).as_deref() == Some("service") { line("service", true) } else { format!("{l}\n") });
-            format!("{SERVICE_ON}\n{}", lines.collect::<String>())
-        } else {
+        let mut text = if migrate.is_empty() {
             old.to_string()
+        } else {
+            let turned = |k: &str| migrate.iter().any(|&(x, _)| x == k);
+            let lines = old.lines().map(|l| match key(l) {
+                Some(k) if turned(&k) => line(&k, true),
+                _ => format!("{l}\n"),
+            });
+            migrate.iter().map(|&(_, m)| format!("{m}\n")).collect::<String>() + &lines.collect::<String>()
         };
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
@@ -140,38 +146,45 @@ mod tests {
     #[test]
     fn each_at_its_default_unless_said_and_a_file_there_only_gains_what_it_lacks() {
         let d = Features::default();
-        assert!(!d.sharing && d.service && !d.trace && !d.display_name && !d.alias_binding && d.version && !d.tree_counts);
+        assert!(!d.sharing && d.service && d.trace && !d.display_name && !d.alias_binding && d.version && !d.tree_counts);
         assert_eq!(parse(""), d);
         assert_eq!(parse(&template()), d);
-        assert_eq!(parse("# sharing = on\ntrace = ON\nservice=yes\nother = on\n"), Features { trace: true, ..d });
+        assert_eq!(parse("# sharing = on\ntrace = OFF\nservice=no\nother = on\n"), Features { trace: false, service: false, ..d });
         assert!(parse("alias_binding = 1").alias_binding);
         assert!(parse("display_name = on").display_name);
         assert!(!parse("version = off").version);
+        let [(_, s), (_, t)] = TURNED_ON;
         let dir = std::env::temp_dir().join(format!("symbiotic-features-{}", std::process::id()));
         let p = dir.join("features.conf");
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(load_from(&p), d);
         assert!(create_in(&p).unwrap());
         assert_eq!(std::fs::read_to_string(&p).unwrap(), template());
+        assert!(template().contains(&format!("{s}\n{t}\n")));
         assert!(template().ends_with("alias_binding = off\nversion = on\ntree_counts = off\n"));
         assert!(!create_in(&p).unwrap());
-        std::fs::write(&p, format!("{SERVICE_ON}\n# mine\nsharing = on\ntrace = off")).unwrap();
+        // A file of this version's: only the keys it lacks are added, what it says stays.
+        std::fs::write(&p, format!("{s}\n{t}\n# mine\nsharing = on\ntrace = off")).unwrap();
         assert!(create_in(&p).unwrap());
         assert_eq!(
             std::fs::read_to_string(&p).unwrap(),
-            format!("{SERVICE_ON}\n# mine\nsharing = on\ntrace = off\nservice = on\ndisplay_name = off\nalias_binding = off\nversion = on\ntree_counts = off\n")
+            format!("{s}\n{t}\n# mine\nsharing = on\ntrace = off\nservice = on\ndisplay_name = off\nalias_binding = off\nversion = on\ntree_counts = off\n")
         );
-        assert_eq!(load_from(&p), Features { sharing: true, ..d });
-        // A preview's file, service off at its old default: turned on once, and left alone after that.
-        let old = "# Which features\nsharing = off\nservice = off\n# service = off\ntrace = on\n";
-        std::fs::write(&p, old).unwrap();
+        assert_eq!(load_from(&p), Features { sharing: true, trace: false, ..d });
+        // An early preview's file, service and trace off at their old defaults: both turned on once, left alone after that.
+        std::fs::write(&p, "# Which features\nsharing = off\nservice = off\n# service = off\ntrace = off\n").unwrap();
         assert!(create_in(&p).unwrap());
         let migrated = std::fs::read_to_string(&p).unwrap();
-        assert!(migrated.starts_with(&format!("{SERVICE_ON}\n# Which features\nsharing = off\nservice = on\n# service = off\ntrace = on\n")), "{migrated}");
-        assert_eq!(load_from(&p), Features { trace: true, ..d });
-        std::fs::write(&p, migrated.replace("service = on", "service = off")).unwrap();
+        assert!(migrated.starts_with(&format!("{s}\n{t}\n# Which features\nsharing = off\nservice = on\n# service = off\ntrace = on\n")), "{migrated}");
+        assert_eq!(load_from(&p), d);
+        std::fs::write(&p, migrated.replace("service = on", "service = off").replace("trace = on", "trace = off")).unwrap();
         assert!(!create_in(&p).unwrap());
-        assert!(!load_from(&p).service);
+        assert_eq!(load_from(&p), Features { service: false, trace: false, ..d });
+        // A file from when only service had turned on: trace is turned on, the service the user turned off stays off.
+        std::fs::write(&p, format!("{s}\nservice = off\ntrace = off\n")).unwrap();
+        assert!(create_in(&p).unwrap());
+        assert!(std::fs::read_to_string(&p).unwrap().starts_with(&format!("{t}\n{s}\nservice = off\ntrace = on\n")));
+        assert_eq!(load_from(&p), Features { service: false, ..d });
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

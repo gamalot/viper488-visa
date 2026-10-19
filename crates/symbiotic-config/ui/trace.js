@@ -158,7 +158,10 @@ async function clearAll() {
 }
 
 async function exportAll() {
-  try { say(t("trace.exported", { path: await invoke("trace_export") }), false); }
+  try {
+    const path = await invoke("trace_export", { kind: t("trace.text_kind") });
+    if (path) say(t("trace.exported", { path }), false);
+  }
   catch (e) { say(String(e), true); }
 }
 

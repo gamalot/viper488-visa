@@ -18,7 +18,7 @@ let selected = { kind: "start" }; // what the right side shows: the start page u
 let about = null;
 // Which features this window shows (features.conf: sharing, the service page, the I/O trace, an instrument's display name,
 // binding an alias to a unit, the version in the status bar, the counts in the tree); each at its default until told.
-let features = { sharing: false, service: true, trace: false, display_name: false, alias_binding: false, version: true, tree_counts: false };
+let features = { sharing: false, service: true, trace: true, display_name: false, alias_binding: false, version: true, tree_counts: false };
 let listAll = false; // viFindRsrc lists the absent instruments too (instruments.conf, list=all)
 
 let aliasList = [];      // [{alias, resource, group}]: aliases.conf, and the group's for network instruments (group: true)
@@ -47,7 +47,8 @@ async function act(key, fn, done, inStatus) {
   busy.add(key);
   render();
   let note;
-  try { const v = await fn(); note = done ? { text: done(v), error: false } : null; }
+  // A `done` that says nothing (a save dialog cancelled) leaves no note.
+  try { const v = await fn(); const text = done ? done(v) : null; note = text == null ? null : { text, error: false }; }
   catch (e) { note = { text: String(e), error: true }; }
   busy.delete(key);
   if (note && inStatus) toast(note.text, note.error);
@@ -1275,10 +1276,11 @@ function openPictures() {
     .catch(e => toast(String(e), true));
 }
 function openTrace() { invoke("open_trace", { title: t("trace.title") }).catch(e => toast(String(e), true)); }
-// The bundle is written to the Downloads folder; the service's page says where, with a button that shows it there.
+// The bundle is written where the user says in a save dialog (starting in Downloads); the service's page says where, with
+// a button that shows it there. Cancelled, nothing is said.
 let bundlePath = null;
 function makeBundle() {
-  act("diag", async () => { bundlePath = await invoke("diag_bundle"); return bundlePath; }, path => t("diag.saved", { path }));
+  act("diag", async () => { bundlePath = await invoke("diag_bundle", { kind: t("diag.zip_kind") }); return bundlePath; }, path => path ? t("diag.saved", { path }) : null);
 }
 function showBundle() { invoke("show_in_folder", { path: bundlePath }).catch(e => toast(String(e), true)); }
 function toolsMenu(button) {
@@ -1299,7 +1301,7 @@ function toolsMenu(button) {
 const logResize = new ResizeObserver(es => { for (const e of es) if (e.target.dataset.atEnd !== "no") e.target.scrollTop = e.target.scrollHeight; });
 
 // What a user looks at, and sends, when something is wrong: the end of the daemon's log, and a bundle of everything
-// (diag.rs) written to the Downloads folder.
+// (diag.rs) saved where the user says.
 function diagBox() {
   const log = need("diag:log", "log_tail", { lines: 40 });
   const text = log.value ? log.value[0] : "";

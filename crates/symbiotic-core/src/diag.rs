@@ -78,13 +78,24 @@ pub fn write_bundle(dir: Option<&Path>) -> io::Result<PathBuf> {
         Some(d) => d.to_path_buf(),
         None => crate::paths::downloads().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no Downloads folder or home directory"))?,
     };
+    let path = dir.join(bundle_name());
+    write_bundle_to(&path)?;
+    Ok(path)
+}
+
+/// The bundle's file name when the user does not choose one: `symbiotic-diag-<seconds>.zip`.
+pub fn bundle_name() -> String {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let path = dir.join(format!("symbiotic-diag-{now}.zip"));
+    format!("symbiotic-diag-{now}.zip")
+}
+
+/// Collect the bundle and write it as `path` (the configuration window's, chosen in a save dialog).
+pub fn write_bundle_to(path: &Path) -> io::Result<()> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let files = collect();
     // A zip's times are the clock's where it was made: this machine's.
     let local = (now as i64 + crate::iotrace::local_offset_s()).max(0) as u64;
-    crate::conffile::write(&path, zip(&files, local))?;
-    Ok(path)
+    crate::conffile::write(path, zip(&files, local))
 }
 
 /// The configuration files, by name: every one the user may have, none that holds a secret.

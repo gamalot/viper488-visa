@@ -104,18 +104,16 @@ pub async fn trace_read(app: tauri::AppHandle, from_start: bool) -> Result<Trace
     .await
 }
 
-/// Every record now in the files, as `symbiotic-ctl trace show` prints them, in a file in the user's
-/// Downloads folder (else home); its path.
+/// Every record now in the files, as `symbiotic-ctl trace show` prints them, in a file the user names in the save dialog
+/// (starting in the Downloads folder); its path, or None when the user cancels.
 #[tauri::command]
-pub async fn trace_export() -> Result<String, String> {
-    crate::blocking(|| {
-        let dir = iotrace::dir();
-        let text = export_text(&dir);
+pub async fn trace_export(window: tauri::WebviewWindow, kind: String) -> Result<Option<String>, String> {
+    crate::blocking(move || {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        let place = symbiotic_core::paths::downloads().ok_or("no Downloads folder or home directory")?;
-        let path = place.join(format!("symbiotic-trace-{now}.txt"));
+        let Some(path) = crate::save_dialog(&window, &format!("symbiotic-trace-{now}.txt"), &kind, "txt")? else { return Ok(None) };
+        let text = export_text(&iotrace::dir());
         std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(path.display().to_string())
+        Ok(Some(path.display().to_string()))
     })
     .await
 }
@@ -136,9 +134,25 @@ fn export_text(dir: &std::path::Path) -> String {
     out
 }
 
+/// Whether this program has had the trace window open.
+static OPENED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Recording stops with the trace window, whoever turned it on: when the window goes (`window_closed`), and when the
+/// program ends having had it open (`program_ends`, should the window not have been told it went). The records stay.
+pub fn window_closed() {
+    let _ = iotrace::set_on(&iotrace::dir(), false);
+}
+
+pub fn program_ends() {
+    if OPENED.load(std::sync::atomic::Ordering::Relaxed) {
+        window_closed();
+    }
+}
+
 /// The trace window: one, brought forward if it is open.
 #[tauri::command]
 pub async fn open_trace(app: tauri::AppHandle, title: String) -> Result<(), String> {
+    OPENED.store(true, std::sync::atomic::Ordering::Relaxed);
     if let Some(w) = app.get_webview_window("trace") {
         let _ = w.unminimize();
         let _ = w.show();

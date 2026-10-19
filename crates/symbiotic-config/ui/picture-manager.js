@@ -434,8 +434,8 @@ function groupBar() {
 // ---- picture packs ----------------------------------------------------------------------------------------
 
 let packBusy = false;
-// Every picture here, in a pack in the Downloads folder: the image each was made of (a line drawing as one bit a pixel)
-// and what was done to it. One with no image of its own goes as the picture itself, line art as it is.
+// Every picture here, in a pack where the user says in a save dialog (cancelled, nothing is said): the image each was
+// made of (a line drawing as one bit a pixel) and what was done to it. One with no image of its own goes as the picture itself, line art as it is.
 async function exportPack() {
   packBusy = true;
   render();
@@ -453,8 +453,8 @@ async function exportPack() {
       else { item.original = o.data_url; item.ext = (/^data:image\/(\w+)/.exec(o.data_url) || [, "png"])[1].replace("jpeg", "jpg"); }
       items.push(item);
     }
-    const path = await invoke("export_picture_pack", { items });
-    toast(t("picture.pack_exported", { n: items.length, path }));
+    const path = await invoke("export_picture_pack", { items, kind: t("picture.pack_kind") });
+    if (path) toast(t("picture.pack_exported", { n: items.length, path }));
   } catch (e) { toast(String(e), true); }
   packBusy = false;
   render();

@@ -14,6 +14,7 @@ serde = { version = "1", features = ["derive"] }
 # Picture packs (picpack.rs): a line drawing written as a one-bit PNG, and a zip that was deflated read.
 png = "0.18.1"
 miniz_oxide = "0.9.1"
+tauri-plugin-dialog = "2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

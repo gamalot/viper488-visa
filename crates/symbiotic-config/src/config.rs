@@ -554,10 +554,16 @@ pub async fn log_tail(lines: usize) -> Result<(String, String), String> {
     .await
 }
 
-/// A diagnostics bundle in the Downloads folder (diag.rs: no daemon started, no private key in it); its path.
+/// A diagnostics bundle (diag.rs: no daemon started, no private key in it) where the user says in the save dialog; its
+/// path, or None when the user cancels.
 #[tauri::command]
-pub async fn diag_bundle() -> Result<String, String> {
-    blocking(|| symbiotic_core::diag::write_bundle(None).map(|p| p.display().to_string()).map_err(|e| e.to_string())).await
+pub async fn diag_bundle(window: tauri::WebviewWindow, kind: String) -> Result<Option<String>, String> {
+    blocking(move || {
+        let Some(path) = crate::save_dialog(&window, &symbiotic_core::diag::bundle_name(), &kind, "zip")? else { return Ok(None) };
+        symbiotic_core::diag::write_bundle_to(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(Some(path.display().to_string()))
+    })
+    .await
 }
 
 /// Show a file the window wrote (the diagnostics bundle) in the system's file manager: selected in Explorer and Finder,
