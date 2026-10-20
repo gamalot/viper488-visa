@@ -18,7 +18,7 @@ let selected = { kind: "start" }; // what the right side shows: the start page u
 let about = null;
 // Which features this window shows (features.conf: sharing, the service page, the I/O trace, an instrument's display name,
 // binding an alias to a unit, the version in the status bar, the counts in the tree); each at its default until told.
-let features = { sharing: false, service: true, trace: true, display_name: false, alias_binding: false, version: true, tree_counts: false };
+let features = { sharing: false, service: true, trace: true, display_name: false, alias_binding: true, version: true, tree_counts: false };
 let listAll = false; // viFindRsrc lists the absent instruments too (instruments.conf, list=all)
 
 let aliasList = [];      // [{alias, resource, group}]: aliases.conf, and the group's for network instruments (group: true)

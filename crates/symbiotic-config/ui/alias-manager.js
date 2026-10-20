@@ -22,6 +22,9 @@ const EXPOSE = ["name", "alias", "both", "none"];
 const PLUS = ["M12 5v14", "M5 12h14"];
 const PENCIL = ["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"];
 const TRASH = ["M3 6h18", "M8 6V4h8v2", "M19 6l-1 14H6L5 6", "M10 11v6", "M14 11v6"];
+// Bind (a closed lock, the one beside a bound alias in the instrument's page) and unbind (the lock open).
+const LOCK = ["rect x=5 y=11 width=14 height=10 rx=2", "M8 11V7a4 4 0 0 1 8 0v4"];
+const UNLOCK = ["rect x=5 y=11 width=14 height=10 rx=2", "M8 11V7a4 4 0 0 1 7.8-1.3"];
 async function setExpose(resource, w) {
   try {
     await invoke("set_expose", { resource, expose: w === "alias" ? null : w });
@@ -128,8 +131,9 @@ function render() {
       el("td", {}, expose),
       el("td", { class: "actions" },
         !binding ? null : unitOfAlias(a.alias)
-          ? el("button", { type: "button", onclick: () => unbind(a.alias) }, t("unit.unbind"))
-          : el("button", { type: "button", title: t("unit.bind_hint"), onclick: () => bind(a.alias) }, t("unit.bind")),
+          ? el("button", { type: "button", class: "iconbtn", title: t("unit.unbind"), "aria-label": t("unit.unbind_named", { alias: a.alias }), onclick: () => unbind(a.alias) }, icon(UNLOCK))
+          // Binding asks the instrument *IDN?: not while it is offline (unbinding asks nothing, and stays).
+          : el("button", { type: "button", class: "iconbtn", disabled: !on, title: on ? t("unit.bind") + "\n" + t("unit.bind_hint") : t("unit.bind_offline"), "aria-label": t("unit.bind_named", { alias: a.alias }), onclick: () => bind(a.alias) }, icon(LOCK)),
         el("button", { type: "button", class: "iconbtn", title: t("alias.edit"), "aria-label": t("alias.edit_named", { alias: a.alias }), onclick: () => edit(a) }, icon(PENCIL)),
         el("button", { type: "button", class: "iconbtn", title: t("action.remove"), "aria-label": t("alias.remove", { alias: a.alias }), onclick: () => remove(a.alias) }, icon(TRASH))));
   });
@@ -147,7 +151,7 @@ async function main() {
   await startWindow();
   statusBar();
   knownResources = await invoke("aliases_init");
-  binding = await invoke("features").then(f => f.alias_binding, () => false);
+  binding = await invoke("features").then(f => f.alias_binding, () => true);
   await reload();
   setWindowTitle(t("alias.all"));
 

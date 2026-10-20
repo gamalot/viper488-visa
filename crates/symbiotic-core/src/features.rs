@@ -27,7 +27,7 @@ const KEYS: [(&str, bool); 7] = [
     ("service", true),
     ("trace", true),
     ("display_name", false),
-    ("alias_binding", false),
+    ("alias_binding", true),
     ("version", true),
     ("tree_counts", false),
 ];
@@ -59,8 +59,11 @@ const HEAD: &str = "\
 /// The keys that became on by default after an earlier version had written them off, each with the line that says so. A
 /// file without a key's line is from before: that key is turned on once and the file gains the line; an off written after
 /// that stays.
-const TURNED_ON: [(&str, &str); 2] =
-    [("service", "# service is on by default since 2026-10-18."), ("trace", "# trace is on by default since 2026-10-18.")];
+const TURNED_ON: [(&str, &str); 3] = [
+    ("service", "# service is on by default since 2026-10-18."),
+    ("trace", "# trace is on by default since 2026-10-18."),
+    ("alias_binding", "# alias_binding is on by default since 2026-10-20."),
+];
 
 fn line(k: &str, on: bool) -> String {
     format!("{k} = {}\n", if on { "on" } else { "off" })
@@ -146,44 +149,44 @@ mod tests {
     #[test]
     fn each_at_its_default_unless_said_and_a_file_there_only_gains_what_it_lacks() {
         let d = Features::default();
-        assert!(!d.sharing && d.service && d.trace && !d.display_name && !d.alias_binding && d.version && !d.tree_counts);
+        assert!(!d.sharing && d.service && d.trace && !d.display_name && d.alias_binding && d.version && !d.tree_counts);
         assert_eq!(parse(""), d);
         assert_eq!(parse(&template()), d);
         assert_eq!(parse("# sharing = on\ntrace = OFF\nservice=no\nother = on\n"), Features { trace: false, service: false, ..d });
-        assert!(parse("alias_binding = 1").alias_binding);
+        assert!(!parse("alias_binding = off").alias_binding);
         assert!(parse("display_name = on").display_name);
         assert!(!parse("version = off").version);
-        let [(_, s), (_, t)] = TURNED_ON;
+        let [(_, s), (_, t), (_, b)] = TURNED_ON;
         let dir = std::env::temp_dir().join(format!("symbiotic-features-{}", std::process::id()));
         let p = dir.join("features.conf");
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(load_from(&p), d);
         assert!(create_in(&p).unwrap());
         assert_eq!(std::fs::read_to_string(&p).unwrap(), template());
-        assert!(template().contains(&format!("{s}\n{t}\n")));
-        assert!(template().ends_with("alias_binding = off\nversion = on\ntree_counts = off\n"));
+        assert!(template().contains(&format!("{s}\n{t}\n{b}\n")));
+        assert!(template().ends_with("alias_binding = on\nversion = on\ntree_counts = off\n"));
         assert!(!create_in(&p).unwrap());
         // A file of this version's: only the keys it lacks are added, what it says stays.
-        std::fs::write(&p, format!("{s}\n{t}\n# mine\nsharing = on\ntrace = off")).unwrap();
+        std::fs::write(&p, format!("{s}\n{t}\n{b}\n# mine\nsharing = on\ntrace = off")).unwrap();
         assert!(create_in(&p).unwrap());
         assert_eq!(
             std::fs::read_to_string(&p).unwrap(),
-            format!("{s}\n{t}\n# mine\nsharing = on\ntrace = off\nservice = on\ndisplay_name = off\nalias_binding = off\nversion = on\ntree_counts = off\n")
+            format!("{s}\n{t}\n{b}\n# mine\nsharing = on\ntrace = off\nservice = on\ndisplay_name = off\nalias_binding = on\nversion = on\ntree_counts = off\n")
         );
         assert_eq!(load_from(&p), Features { sharing: true, trace: false, ..d });
-        // An early preview's file, service and trace off at their old defaults: both turned on once, left alone after that.
-        std::fs::write(&p, "# Which features\nsharing = off\nservice = off\n# service = off\ntrace = off\n").unwrap();
+        // An early preview's file, service, trace and alias_binding off at their old defaults: each turned on once, left alone after that.
+        std::fs::write(&p, "# Which features\nsharing = off\nservice = off\n# service = off\ntrace = off\nalias_binding = off\n").unwrap();
         assert!(create_in(&p).unwrap());
         let migrated = std::fs::read_to_string(&p).unwrap();
-        assert!(migrated.starts_with(&format!("{s}\n{t}\n# Which features\nsharing = off\nservice = on\n# service = off\ntrace = on\n")), "{migrated}");
+        assert!(migrated.starts_with(&format!("{s}\n{t}\n{b}\n# Which features\nsharing = off\nservice = on\n# service = off\ntrace = on\nalias_binding = on\n")), "{migrated}");
         assert_eq!(load_from(&p), d);
-        std::fs::write(&p, migrated.replace("service = on", "service = off").replace("trace = on", "trace = off")).unwrap();
+        std::fs::write(&p, migrated.replace("service = on", "service = off").replace("trace = on", "trace = off").replace("alias_binding = on", "alias_binding = off")).unwrap();
         assert!(!create_in(&p).unwrap());
-        assert_eq!(load_from(&p), Features { service: false, trace: false, ..d });
-        // A file from when only service had turned on: trace is turned on, the service the user turned off stays off.
-        std::fs::write(&p, format!("{s}\nservice = off\ntrace = off\n")).unwrap();
+        assert_eq!(load_from(&p), Features { service: false, trace: false, alias_binding: false, ..d });
+        // A file from when only service had turned on: trace and alias_binding are turned on, the service the user turned off stays off.
+        std::fs::write(&p, format!("{s}\nservice = off\ntrace = off\nalias_binding = off\n")).unwrap();
         assert!(create_in(&p).unwrap());
-        assert!(std::fs::read_to_string(&p).unwrap().starts_with(&format!("{t}\n{s}\nservice = off\ntrace = on\n")));
+        assert!(std::fs::read_to_string(&p).unwrap().starts_with(&format!("{t}\n{b}\n{s}\nservice = off\ntrace = on\nalias_binding = on\n")));
         assert_eq!(load_from(&p), Features { service: false, ..d });
         let _ = std::fs::remove_dir_all(&dir);
     }

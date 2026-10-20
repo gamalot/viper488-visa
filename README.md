@@ -148,6 +148,13 @@ otherwise `viClear` sends a break.
 - **Aliases** (`symbiotic-ctl alias add DMM GPIB1::6::INSTR`, kept in `aliases.conf`) open with `viOpen`,
   and `viParseRsrcEx` (pyvisa's `resource_info`) gives a resource's alias back. An alias cannot contain a
   colon or be a resource name itself, so a real name always means itself.
+- **An alias can be bound to one unit** (the lock button in the configuration window's aliases window, or
+  `symbiotic-ctl alias bind DMM`): the instrument is asked `*IDN?` once and its manufacturer, model and
+  serial number are kept in `identities.conf`. From then on `viOpen("DMM")` checks that the instrument at the
+  alias's resource is still that unit, looks for it if its address changed (another GPIB address or board,
+  another LAN address), and never opens another instrument under that name. A USB instrument is checked by its
+  descriptor, without a command; a serial port is checked but not searched (opening one raises DTR). Binding
+  is refused for an instrument excluded from `*IDN?` and for one that reports no serial number.
 
 ## C and C++
 
@@ -213,7 +220,7 @@ the daemon opens that adapter), the LAN instrument list, the bridges and the ali
     symbiotic-ctl usb                                        # the USBTMC instruments, and which are ours
     symbiotic-ctl serial                                     # the serial ports (opens none)
     symbiotic-ctl bridge [list | add COMn [prologix|ar488] | remove COMn]   # Prologix/AR488 bridges
-    symbiotic-ctl alias [list | add NAME RESOURCE | remove NAME]          # aliases: viOpen("DMM")
+    symbiotic-ctl alias [list | add NAME RESOURCE | remove NAME | bind NAME | unbind NAME]   # aliases: viOpen("DMM")
     symbiotic-ctl stop                                       # ask the daemon to exit
 
 `symbiotic-ctl` with no arguments lists every command. The speed is also the exported (non-VISA) function
