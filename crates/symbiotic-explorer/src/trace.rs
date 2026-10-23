@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn the_export_names_each_program_once_and_keeps_time_order() {
-        let d = std::env::temp_dir().join(format!("symbiotic-config-export-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("symbiotic-explorer-export-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         let rec = |pid: u32, at_us: u64, op: &str, data: &[u8]| Record { at_us, pid, depth: 1, vi: 1, op: op.into(), status: 0, dur_us: 5, resource: "GPIB0::15::INSTR".into(), count: Some(data.len() as u32), data: data.to_vec() };

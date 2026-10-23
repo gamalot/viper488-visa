@@ -14,11 +14,11 @@
   driver stays there.
 
   In it: the DLLs (visa64 and visa32), the daemon beside them (the DLL starts it from its own directory),
-  symbiotic-ctl, symbiotic-config (with a Start menu shortcut), the C headers and import libraries, the VISA.NET and VISA COM assemblies (dotnet\) and the
+  symbiotic-ctl, symbiotic-explorer (with a Start menu shortcut), the C headers and import libraries, the VISA.NET and VISA COM assemblies (dotnet\) and the
   Windows scripts. The user's own files (lan.conf, aliases.conf, bridges.conf, speed.conf, firmware\) are not
   the MSI's and stay. The Keysight 82357B firmware image is not in it and must never be: it is Keysight's.
 
-  symbiotic-config is a web page in Microsoft's WebView2 runtime. Windows 11 has it; where it is missing (older
+  symbiotic-explorer is a web page in Microsoft's WebView2 runtime. Windows 11 has it; where it is missing (older
   Windows 10) Microsoft's Evergreen bootstrapper, installed in windows\ (wixl runs an executable only from an
   installed file, not from the Binary table), fetches and installs it for the machine, as SYSTEM. It
   needs the internet; its failure does not fail this install.
@@ -76,8 +76,8 @@
             <File Id="visa32.dll" Source="$(var.Src)/visa32.dll" />
             <File Id="symbioticd.exe" Source="$(var.Src)/symbioticd.exe" />
             <File Id="symbiotic_ctl.exe" Source="$(var.Src)/symbiotic-ctl.exe" />
-            <File Id="symbiotic_config.exe" Source="$(var.Src)/symbiotic-config.exe">
-              <Shortcut Id="ConfigShortcut" Directory="ProgramMenuFolder" Target="[#symbiotic_config.exe]" Name="Viper488 Symbiotic VISA" Description="Instruments, their console, adapters, LAN, serial controllers, aliases" WorkingDirectory="INSTALLDIR" Advertise="no" />
+            <File Id="symbiotic_explorer.exe" Source="$(var.Src)/symbiotic-explorer.exe">
+              <Shortcut Id="ConfigShortcut" Directory="ProgramMenuFolder" Target="[#symbiotic_explorer.exe]" Name="Symbiotic Explorer" Description="Instruments, their console, adapters, LAN, serial controllers, aliases" WorkingDirectory="INSTALLDIR" Advertise="no" />
             </File>
             <File Id="visa64.lib" Source="$(var.Src)/visa64.lib" />
             <File Id="visa32.lib" Source="$(var.Src)/visa32.lib" />
@@ -227,7 +227,7 @@
 
     <!-- Titles and descriptions are what the Custom setup page shows (tools/msi_ui.py). -->
     <Feature Id="Runtime" Title="Viper488 Symbiotic VISA" Level="1" ConfigurableDirectory="INSTALLDIR" Absent="disallow" AllowAdvertise="no"
-             Description="The VISA library (visa64.dll, visa32.dll), its background service, the configuration window, symbiotic-ctl, the C headers and import libraries, and the VISA.NET and VISA COM assemblies. Required.">
+             Description="The VISA library (visa64.dll, visa32.dll), its background service, Symbiotic Explorer, symbiotic-ctl, the C headers and import libraries, and the VISA.NET and VISA COM assemblies. Required.">
       <ComponentRef Id="Main" />
       <ComponentRef Id="Include" />
       <ComponentRef Id="Scripts" />

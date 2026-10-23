@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check_locales.py -- the configuration window's strings (crates/symbiotic-config/ui/locales/*.json)
+"""check_locales.py -- the configuration window's strings (crates/symbiotic-explorer/ui/locales/*.json)
 against each other: the same keys in every language; a plural string an object with an "other" form
 (a language may have fewer forms than English: Chinese has only "other"); and the same {placeholders}
 in every language's text for a key, so no language drops or invents a value. English is the reference.
@@ -9,7 +9,7 @@ import pathlib
 import re
 import sys
 
-DIR = pathlib.Path(__file__).resolve().parent.parent / "crates/symbiotic-config/ui/locales"
+DIR = pathlib.Path(__file__).resolve().parent.parent / "crates/symbiotic-explorer/ui/locales"
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 

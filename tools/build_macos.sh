@@ -4,7 +4,7 @@
 #   tools/build_macos.sh               -> target/symbiotic-visa-<version>-macos-universal.dmg
 #   tools/build_macos.sh --app DIR     -> Symbiotic.app put in DIR (~/Applications while developing), no .dmg
 #
-#   Symbiotic.app/Contents/MacOS/symbiotic-config         the main program: the configuration window
+#   Symbiotic.app/Contents/MacOS/symbiotic-explorer       the main program: Symbiotic Explorer
 #                         MacOS/symbiotic-ctl
 #                         Frameworks/libvisa64.dylib      the library pyvisa is given
 #                         Helpers/SymbioticDaemon.app     the daemon, main program of a bundle of its own: launchd lets
@@ -38,7 +38,7 @@ for t in $targets; do
   # one package per build: built together, the library's copy at the top of target/ is not refreshed
   cargo build --release --target "$t" -p symbiotic-core --bin symbioticd --bin symbiotic-ctl
   cargo build --release --target "$t" -p symbiotic-visa
-  cargo build --release --target "$t" -p symbiotic-config
+  cargo build --release --target "$t" -p symbiotic-explorer
 done
 
 stage=target/macos
@@ -51,7 +51,7 @@ universal() {  # universal OUT FILE: both targets' FILE in one
   lipo -create -output "$1" target/aarch64-apple-darwin/release/"$2" target/x86_64-apple-darwin/release/"$2"
   for a in arm64 x86_64; do lipo "$1" -verify_arch "$a" || { echo "$1 has no $a"; exit 1; }; done
 }
-universal "$app/Contents/MacOS/symbiotic-config" symbiotic-config
+universal "$app/Contents/MacOS/symbiotic-explorer" symbiotic-explorer
 universal "$app/Contents/MacOS/symbiotic-ctl" symbiotic-ctl
 universal "$app/Contents/Frameworks/libvisa64.dylib" libvisa64.dylib
 universal "$helper/Contents/MacOS/symbioticd" symbioticd
@@ -61,8 +61,8 @@ cp include/visa.h include/visatype.h "$app/Contents/Resources/include/"
 iconset="$stage/Symbiotic.iconset"
 mkdir -p "$iconset"
 for s in 16 32 128 256 512; do
-  sips -z $s $s crates/symbiotic-config/icons/icon.png --out "$iconset/icon_${s}x${s}.png" >/dev/null
-  d=$((s * 2)); [ $d -le 512 ] && sips -z $d $d crates/symbiotic-config/icons/icon.png --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
+  sips -z $s $s crates/symbiotic-explorer/icons/icon.png --out "$iconset/icon_${s}x${s}.png" >/dev/null
+  d=$((s * 2)); [ $d -le 512 ] && sips -z $d $d crates/symbiotic-explorer/icons/icon.png --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/Symbiotic.icns"
 rm -rf "$iconset"
@@ -88,7 +88,7 @@ $5
 </plist>
 PLIST
 }
-plist "$app/Contents/Info.plist" com.viper488.symbiotic Symbiotic symbiotic-config \
+plist "$app/Contents/Info.plist" com.viper488.symbiotic Symbiotic symbiotic-explorer \
   "	<key>CFBundleIconFile</key><string>Symbiotic</string>
 	<key>NSHighResolutionCapable</key><true/>"
 plist "$helper/Contents/Info.plist" com.viper488.symbiotic.daemon SymbioticDaemon symbioticd \

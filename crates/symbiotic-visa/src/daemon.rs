@@ -55,7 +55,7 @@ pub(crate) fn dll_dir() -> Option<PathBuf> {
             let name = unsafe { CStr::from_ptr(info.dli_fname) };
             use std::os::unix::ffi::OsStrExt;
             let path = PathBuf::from(std::ffi::OsStr::from_bytes(name.to_bytes()));
-            // A link is followed: the main program is named as it was started (/usr/bin/symbiotic-config,
+            // A link is followed: the main program is named as it was started (/usr/bin/symbiotic-explorer,
             // a link into /usr/lib/symbiotic), and the daemon is beside the real file. A name without a
             // directory says nothing.
             let path = std::fs::canonicalize(&path).unwrap_or(path);

@@ -110,7 +110,17 @@ pub unsafe extern "system" fn viFindRsrc(
         let list_all = symbiotic_core::instruments::find_lists_all();
         let lan = {
             use symbiotic_core::lan::{conf, discover, vxi11};
-            let wanted: Vec<_> = conf::load().into_iter().filter(|t| resource::matches(expr, &t.name())).collect();
+            let mut wanted: Vec<_> = conf::load().into_iter().filter(|t| resource::matches(expr, &t.name())).collect();
+            // The group's aliases for network instruments are checked as the configured ones are, and listed only
+            // if theirs answers: a group alias is a name, not a sign that its instrument is on.
+            if !symbiotic_core::instruments::sees_everything() {
+                refresh_group();
+                for l in symbiotic_core::share::lookup::listed().into_iter().filter(|l| l.direct && resource::matches(expr, &l.resource)) {
+                    if let Some(t) = symbiotic_core::lan::name::parse(&l.resource).filter(|t| !wanted.iter().any(|w| w.name() == t.name())) {
+                        wanted.push(t);
+                    }
+                }
+            }
             let find = conf::discover_enabled() && resource::may_match_lan(expr);
             let expr = expr.to_string();
             std::thread::spawn(move || {
@@ -168,7 +178,6 @@ pub unsafe extern "system" fn viFindRsrc(
             let found: Vec<String> = names.iter().filter_map(|n| symbiotic_core::resource::canonical(n)).collect();
             // A LAN instrument's settings count only while its address is the instrument they are for (its MAC): instruments.rs.
             names = symbiotic_core::instruments::Exposure::load_for(&found).listed(names);
-            refresh_group();
             // The group's aliases that other machines own are listed by their alias, the only name
             // they have here; a LAN one this machine also found by its resource name is listed by
             // the alias in that name's place, as an alias-only resource is (instruments.rs).
@@ -178,8 +187,9 @@ pub unsafe extern "system" fn viFindRsrc(
                     continue;
                 }
                 let at = names.iter().position(|n| symbiotic_core::resource::canonical(n).is_some_and(|c| c == res));
-                // A network instrument found here: its exposure setting has listed it, by its group alias too (Exposure).
-                if l.direct && found.iter().any(|c| c.eq_ignore_ascii_case(&res)) {
+                // A network instrument was checked with the configured ones: found, its exposure setting has listed it, by its
+                // group alias too (Exposure); not found, it is not listed.
+                if l.direct {
                     continue;
                 }
                 match at {

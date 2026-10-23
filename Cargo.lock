@@ -3248,20 +3248,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "symbiotic-config"
-version = "0.1.0"
-dependencies = [
- "miniz_oxide 0.9.1",
- "png 0.18.1",
- "serde",
- "symbiotic-core",
- "symbiotic-visa",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
-]
-
-[[package]]
 name = "symbiotic-core"
 version = "0.1.0"
 dependencies = [
@@ -3275,6 +3261,20 @@ dependencies = [
  "snow",
  "socket2",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "symbiotic-explorer"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide 0.9.1",
+ "png 0.18.1",
+ "serde",
+ "symbiotic-core",
+ "symbiotic-visa",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
 ]
 
 [[package]]

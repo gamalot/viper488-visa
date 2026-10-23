@@ -12,10 +12,10 @@ export PATH="$HOME/.cargo/bin:$PATH"
 step() { printf '\n== %s\n' "$*"; }
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
-step "unit tests (symbiotic-core, symbiotic-visa, symbiotic-config)"
+step "unit tests (symbiotic-core, symbiotic-visa, symbiotic-explorer)"
 cargo test -q -p symbiotic-core
 cargo test -q -p symbiotic-visa                    # the C API in-process: the I/O trace end to end
-cargo test -q -p symbiotic-config                  # the configuration window's own logic (console escapes, labels, export)
+cargo test -q -p symbiotic-explorer                # Symbiotic Explorer's own logic (console escapes, labels, export)
 
 step "workspace check, all targets, warnings are errors"
 RUSTFLAGS="-D warnings" cargo check -q --workspace --all-targets
@@ -83,7 +83,7 @@ step "the MSI (wixl, for all users), with what it must hold and never the Keysig
 grep -qxF 'DriverVer   = 01/01/2000,$Version' windows/usbtmc-winusb.ps1 \
     || { echo "windows/usbtmc-winusb.ps1: the INF's DriverVer is not 01/01/2000"; exit 1; }
 if command -v wixl >/dev/null && cargo xwin --version >/dev/null 2>&1 && command -v dotnet.exe >/dev/null; then
-    want="MicrosoftEdgeWebview2Setup.exe Symbiotic.Visa.deps.json Symbiotic.Visa.dll Symbiotic.Visa.dll Symbiotic.VisaCom.dll register-visa.ps1 register-visacom.ps1 register-visanet.ps1 symbiotic-config.exe symbiotic-ctl.exe symbiotic-quiet.exe symbioticd.exe usbtmc-winusb.ps1 visa.h visa32.dll visa32.lib visa64.dll visa64.lib visatype.h winusb-bind.ps1 winusb-unbind.ps1 "
+    want="MicrosoftEdgeWebview2Setup.exe Symbiotic.Visa.deps.json Symbiotic.Visa.dll Symbiotic.Visa.dll Symbiotic.VisaCom.dll register-visa.ps1 register-visacom.ps1 register-visanet.ps1 symbiotic-ctl.exe symbiotic-explorer.exe symbiotic-quiet.exe symbioticd.exe usbtmc-winusb.ps1 visa.h visa32.dll visa32.lib visa64.dll visa64.lib visatype.h winusb-bind.ps1 winusb-unbind.ps1 "
     msi=$(tools/build_msi.sh | tail -1)
     files=$(msiinfo export "$msi" File | tail -n +4 | cut -f3 | sort | tr '\n' ' ')
     [ "$files" = "$want" ] || { echo "$msi holds: $files"; exit 1; }
@@ -134,7 +134,7 @@ step "the Linux package (.deb): what it must hold, glibc 2.34 at most, never the
 if cargo zigbuild --help >/dev/null 2>&1 && [ -x "$HOME/.local/zig/zig" ] && command -v dpkg-deb >/dev/null; then
     deb=$(tools/build_deb.sh | tail -1)   # it fails by itself on a binary that needs a newer glibc
     got=$(dpkg-deb -c "$deb" | awk '{print $6}' | grep -v '/$' | sort | tr '\n' ' ')
-    want="./usr/bin/symbiotic-config ./usr/bin/symbiotic-ctl ./usr/include/symbiotic/visa.h ./usr/include/symbiotic/visatype.h ./usr/lib/symbiotic/libvisa64.so ./usr/lib/symbiotic/symbiotic-config ./usr/lib/symbiotic/symbiotic-ctl ./usr/lib/symbiotic/symbioticd ./usr/lib/udev/rules.d/70-symbiotic.rules ./usr/share/applications/symbiotic-config.desktop ./usr/share/doc/viper488-symbiotic-visa/README.md ./usr/share/doc/viper488-symbiotic-visa/copyright ./usr/share/icons/hicolor/512x512/apps/symbiotic-config.png ./usr/share/viper488-symbiotic-visa/71-symbiotic-everyone.rules "
+    want="./usr/bin/symbiotic-ctl ./usr/bin/symbiotic-explorer ./usr/include/symbiotic/visa.h ./usr/include/symbiotic/visatype.h ./usr/lib/symbiotic/libvisa64.so ./usr/lib/symbiotic/symbiotic-ctl ./usr/lib/symbiotic/symbiotic-explorer ./usr/lib/symbiotic/symbioticd ./usr/lib/udev/rules.d/70-symbiotic.rules ./usr/share/applications/symbiotic-explorer.desktop ./usr/share/doc/viper488-symbiotic-visa/README.md ./usr/share/doc/viper488-symbiotic-visa/copyright ./usr/share/icons/hicolor/512x512/apps/symbiotic-explorer.png ./usr/share/viper488-symbiotic-visa/71-symbiotic-everyone.rules "
     [ "$got" = "$want" ] || { echo "$deb holds: $got"; exit 1; }
     dpkg-deb -x "$deb" "$tmp/deb"
     python3 tools/check_exports.py "$tmp/deb/usr/lib/symbiotic/libvisa64.so" include/visa.h
@@ -155,7 +155,7 @@ fi
 echo "none"
 
 step "dependencies against the RustSec advisories (cargo-audit): no vulnerability, and no warning unless named here"
-# Named, with why: both come with Tauri's Linux webview (gtk-rs 0.18), only into symbiotic-config, and go when Tauri
+# Named, with why: both come with Tauri's Linux webview (gtk-rs 0.18), only into symbiotic-explorer, and go when Tauri
 # moves to a newer gtk-rs; our code does not use glib itself.
 #   RUSTSEC-2024-0370  proc-macro-error is unmaintained (a build-time macro of glib-macros)
 #   RUSTSEC-2024-0429  glib's VariantStrIter is unsound

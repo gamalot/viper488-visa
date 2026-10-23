@@ -5,5 +5,5 @@ tests/logs/
 windows/trace/
 dotnet/**/bin/
 dotnet/**/obj/
-crates/symbiotic-config/gen/
+crates/symbiotic-explorer/gen/
 .release-base

@@ -23,7 +23,7 @@ tools/build_visa32.sh >/dev/null
 tools/build_dotnet.sh >/dev/null
 stage=$(mktemp -d); trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/include" "$stage/windows" "$stage/dotnet"
-cp "$REL/visa64.dll" "$REL/symbioticd.exe" "$REL/symbiotic-ctl.exe" "$REL/symbiotic-config.exe" "$stage/"
+cp "$REL/visa64.dll" "$REL/symbioticd.exe" "$REL/symbiotic-ctl.exe" "$REL/symbiotic-explorer.exe" "$stage/"
 cp "$REL/visa64.dll.lib" "$stage/visa64.lib"
 # Microsoft's WebView2 Evergreen bootstrapper, installed in windows\ and run where WebView2 is missing (symbiotic.wxs): fetched once into
 # target/webview2 (redistributable under the WebView2 runtime's terms; not kept in git).

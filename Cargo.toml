@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/symbiotic-core", "crates/symbiotic-visa", "crates/symbiotic-config"]
+members = ["crates/symbiotic-core", "crates/symbiotic-visa", "crates/symbiotic-explorer"]
 resolver = "2"
 
 [workspace.package]

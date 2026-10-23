@@ -161,7 +161,7 @@ fn judge_at(host: &str, port: Option<u16>, iface: &str, within: Duration) -> Ver
 /// release ATN, and see whether NDAC is held (the way the adapters' own probe works; no serial
 /// poll, which would clear the instrument's RQS). REN is left alone. The interface is locked for the
 /// duration, without waiting: another client's lock is `Locked`, a gateway without ATN control is
-/// `Unsupported`. `progress` is told each address as it is tried.
+/// `Unsupported`. A bus with every device off answers no listener. `progress` is told each address as it is tried.
 pub fn find_listeners(host: &str, iface: &str, within: Duration, progress: impl FnMut(u8)) -> Result<Vec<u8>, Error> {
     find_at(host, None, iface, within, progress)
 }
@@ -191,6 +191,9 @@ pub fn find_at(host: &str, port: Option<u16>, iface: &str, within: Duration, mut
         match one {
             Ok(true) => found.push(addr),
             Ok(false) => {}
+            // Command bytes nobody accepts: with ATN asserted every powered device holds NDAC, so a bus where none
+            // does has nothing on (every instrument switched off), and no listener rather than no answer.
+            Err(Error::Timeout) if l.atn(true, dl()).and_then(|_| l.bus_status(BUS_STATUS_NDAC, dl())) == Ok(0) => break,
             Err(e) => {
                 result = Err(e);
                 break;

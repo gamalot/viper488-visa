@@ -639,7 +639,7 @@ fn url_host(host: &str) -> String {
 #[tauri::command]
 pub async fn open_web(url: String) -> Result<(), String> {
     let host = url.strip_prefix("http://").and_then(|r| r.strip_suffix('/')).map(|h| h.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(h));
-    let Some(host) = host.filter(|h| web_host(h)) else { return Err(format!("{url:?} is not a page this window opens")) };
+    let Some(host) = host.filter(|h| web_host(h)) else { return Err(format!("{url:?} is not a page Symbiotic Explorer opens")) };
     let url = format!("http://{}/", url_host(host));
     blocking(move || {
         #[cfg(windows)]

@@ -174,7 +174,7 @@ pub fn unzip(z: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
         let data = match method {
             0 => data.to_vec(),
             8 => miniz_oxide::inflate::decompress_to_vec_with_limit(data, size).map_err(|_| format!("{name}: damaged"))?,
-            m => return Err(format!("{name}: compressed in a way this window does not read ({m})")),
+            m => return Err(format!("{name}: compressed in a way Symbiotic Explorer does not read ({m})")),
         };
         if data.len() != size {
             return Err(format!("{name}: damaged"));

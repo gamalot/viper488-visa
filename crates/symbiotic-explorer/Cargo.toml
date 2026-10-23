@@ -1,6 +1,6 @@
 [package]
-name = "symbiotic-config"
-description = "Viper488 Symbiotic VISA Runtime: the configuration window (a web page in the system's webview, Tauri), for Windows, Linux and macOS"
+name = "symbiotic-explorer"
+description = "Viper488 Symbiotic VISA Runtime: Symbiotic Explorer, the window (a web page in the system's webview, Tauri), for Windows, Linux and macOS"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

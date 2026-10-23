@@ -97,7 +97,7 @@ CANCEL = ("SpawnDialog", "CancelDlg")
 dialog("WelcomeDlg", "[ProductName] Setup", "Next", "Next", "Cancel", title(f"Welcome to {PRODUCT} Setup") + [
     ("Body", "Text", 15, 70, 340, 120, TEXT, "",
      f"Setup installs {PRODUCT} [ProductVersion]: a VISA library (visa64.dll and visa32.dll) for GPIB adapters, USBTMC, "
-     "LAN and serial instruments, its background service, the configuration window and the command-line tool. "
+     "LAN and serial instruments, its background service, Symbiotic Explorer and the command-line tool. "
      "On the next page you choose the features and where to install them. Nothing is changed on this computer "
      "until you click Install on the last page."),
 ] + buttons(back=False))
@@ -209,7 +209,7 @@ for b, _, e in err_buttons:
 # Error dialogs have no tab ring of their own: the installer shows only some of the buttons.
 controls[:] = [c[:10] + ("",) if c[0] == "ErrorDlg" else c for c in controls]
 
-# A file in use (the configuration window still open, say).
+# A file in use (Symbiotic Explorer still open, say).
 dialog("FilesInUse", "[ProductName] Setup", "Retry", "Retry", "Exit", title(
     "Files in use", "These programs use files that Setup has to change. Close them and click Retry.") + [
     ("List", "ListBox", 15, 65, 340, 130, C_VISIBLE | C_ENABLED | C_SUNKEN, "FileInUseProcess", ""),

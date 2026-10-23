@@ -1,5 +1,5 @@
 {
-  "productName": "Viper488 Symbiotic VISA",
+  "productName": "Symbiotic Explorer",
   "identifier": "com.viper488.symbiotic",
   "build": {
     "frontendDist": "ui"
@@ -10,7 +10,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "Viper488 Symbiotic VISA",
+        "title": "Symbiotic Explorer",
         "width": 1280,
         "height": 720,
         "minWidth": 760,

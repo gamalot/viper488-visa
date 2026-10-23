@@ -8,8 +8,9 @@ Section: electronics
 Priority: optional
 Description: VISA library for GPIB adapters, USBTMC, serial and LAN instruments
  Viper488 Symbiotic VISA Runtime: the VISA C API (libvisa64.so) for GPIB instruments behind
- Viper488, NI GPIB-USB-HS, Keysight 82357B and CONTEC GP-IB(USB)FL adapters and Prologix/AR488
- bridges, USBTMC instruments, serial ports and LAN instruments (VXI-11, HiSLIP, SOCKET).
- Installed in /usr/lib/symbiotic, with symbiotic-ctl and the configuration window
- symbiotic-config (a web page in WebKitGTK; fonts-noto-cjk for its Chinese). It does not
+ Viper488 USB/GPIB, NI GPIB-USB-HS, Keysight 82357B and CONTEC GP-IB(USB)FL adapters,
+ LAN/GPIB gateways and Prologix/AR488 bridges, USBTMC instruments, serial ports and LAN
+ instruments (VXI-11, HiSLIP, SOCKET).
+ Installed in /usr/lib/symbiotic, with symbiotic-ctl and Symbiotic Explorer,
+ symbiotic-explorer (a web page in WebKitGTK; fonts-noto-cjk for its Chinese). It does not
  take the system's libvisa.so name.

@@ -6,7 +6,7 @@ this repository (see `.gitignore`). To use an 82357B, provide the file yourself.
 
 | File | For | Where from |
 |---|---|---|
-| `measat_releaseX1.8.hex` | 82357B | linux-gpib's `gpib_firmware` tarball, `agilent_82357a/` |
+| `measat_releaseX1.8.hex` | 82357B | linux-gpib's firmware, https://github.com/fmhess/linux_gpib_firmware, `agilent_82357a/` |
 
 The daemon looks for it, in order: `$SYMBIOTIC_KS_FIRMWARE`, `firmware/` in the configuration
 directory (`%LOCALAPPDATA%\Symbiotic`, `C:\ProgramData\Symbiotic` after an all-users install,

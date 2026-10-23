@@ -1,7 +1,7 @@
-//! The configuration window as a web page in a native window (Tauri). The page (ui/) asks these commands over Tauri's
-//! in-process channel: nothing listens on a port. What they read and change is what `symbiotic-ctl` does, through the
-//! same `symbiotic-core` functions; instruments are talked to through our own C API in-process (visa.rs), as an
-//! application talks to them.
+//! Symbiotic Explorer, the configuration window, as a web page in a native window (Tauri). The page (ui/) asks these
+//! commands over Tauri's in-process channel: nothing listens on a port. What they read and change is what
+//! `symbiotic-ctl` does, through the same `symbiotic-core` functions; instruments are talked to through our own C API
+//! in-process (visa.rs), as an application talks to them.
 
 // A window, not a console, on Windows (a release build).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

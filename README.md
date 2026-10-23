@@ -2,9 +2,11 @@
 
 > **Preview release.** Interfaces and file formats may still change.
 
-A VISA library for GPIB instruments behind USB GPIB adapters (Viper488, NI GPIB-USB-HS, Keysight 82357B,
-CONTEC GP-IB(USB)FL, and Prologix/AR488 controllers on a serial port), for USBTMC instruments, LAN (LXI)
-instruments and serial instruments. It exports the VISA C API (`viOpenDefaultRM`, `viOpen`, `viWrite`,
+A VISA runtime for Windows, Linux and macOS: an implementation of VISA, the standard I/O interface for test and
+measurement instruments (IVI Foundation, VPP-4.3), as NI-VISA and Keysight VISA are. It is for GPIB instruments
+behind USB/GPIB adapters (Viper488 Classic, Dualic and Kinetic, NI GPIB-USB-HS, Keysight 82357B, CONTEC
+GP-IB(USB)FL), behind LAN/GPIB gateways (Viper488 Etheric, Agilent E5810A) and behind Prologix/AR488 controllers on
+a serial port, and for USBTMC instruments, LAN (LXI) instruments and serial instruments. It exports the VISA C API (`viOpenDefaultRM`, `viOpen`, `viWrite`,
 `viRead`, ...) from `visa64.dll` (and a 32-bit `visa32.dll`; `libvisa64.so` on Linux), so pyvisa,
 LabVIEW-style applications, C programs and anything else that loads a VISA library can use them:
 
@@ -15,10 +17,11 @@ LabVIEW-style applications, C programs and anything else that loads a VISA libra
     TCPIP0::192.168.1.20::inst0::INSTR      VXI-11 (the device name may be left out)
     TCPIP0::192.168.1.20::hislip0::INSTR    HiSLIP
     TCPIP0::192.168.1.20::5025::SOCKET      a raw socket
+    TCPIP0::192.168.1.30::gpib0,5::INSTR    GPIB address 5 behind a LAN/GPIB gateway
     DMM                                     an alias you defined (`symbiotic-ctl alias add DMM GPIB1::6::INSTR`)
 
-It also provides VISA.NET and VISA COM implementations on top of the same C API, a configuration window
-(`symbiotic-config`) and a command-line tool (`symbiotic-ctl`).
+It also provides VISA.NET and VISA COM implementations on top of the same C API, a graphical
+configuration tool (Symbiotic Explorer, `symbiotic-explorer`) and a command-line tool (`symbiotic-ctl`).
 
 Platforms: Windows (MSI), Linux (`.deb`, amd64 and arm64, e.g. a Raspberry Pi) and macOS (`.dmg`, Apple Silicon and Intel).
 
@@ -26,7 +29,7 @@ Platforms: Windows (MSI), Linux (`.deb`, amd64 and arm64, e.g. a Raspberry Pi) a
 
 1. Install it: run the MSI on Windows, or install the `.deb` on Linux (see [Installing](#installing)).
 2. For an NI, Keysight or CONTEC adapter on Windows, bind it to WinUSB first (see [GPIB adapters](#gpib-adapters-gpibnaddrinstr-gpibnintfc)).
-   A Viper488 needs nothing.
+   A Viper488 USB/GPIB adapter needs nothing.
 3. From Python:
 
        import pyvisa
@@ -105,7 +108,7 @@ work on VXI-11 and HiSLIP sessions. A SOCKET session ends a read only at the ter
 or the timeout, so set `read_termination`; with `VI_ATTR_IO_PROT` set to `VI_PROT_4882_STRS` its
 `viReadSTB` sends `*STB?`.
 
-An instrument behind a LAN/GPIB gateway (such as an Agilent E5810A) is
+An instrument behind a LAN/GPIB gateway (the Viper488 Etheric, an Agilent E5810A and the like) is
 `TCPIP0::<gateway>::gpib0,<address>::INSTR`: it gets its GPIB address as attributes, and REN, local lockout
 and IFC through the gateway's interface link (VXI-11.2 `device_docmd`).
 
@@ -148,7 +151,7 @@ otherwise `viClear` sends a break.
 - **Aliases** (`symbiotic-ctl alias add DMM GPIB1::6::INSTR`, kept in `aliases.conf`) open with `viOpen`,
   and `viParseRsrcEx` (pyvisa's `resource_info`) gives a resource's alias back. An alias cannot contain a
   colon or be a resource name itself, so a real name always means itself.
-- **An alias can be bound to one unit** (the lock button in the configuration window's aliases window, or
+- **An alias can be bound to one unit** (the lock button in Symbiotic Explorer's alias manager, or
   `symbiotic-ctl alias bind DMM`): the instrument is asked `*IDN?` once and its manufacturer, model and
   serial number are kept in `identities.conf`. From then on `viOpen("DMM")` checks that the instrument at the
   alias's resource is still that unit, looks for it if its address changed (another GPIB address or board,
@@ -189,19 +192,20 @@ plus one component per resource kind, over the same C API. The shared VISA COM c
 `RegisterVisaCom` feature or `windows\register-visacom.ps1` (elevated). `SYMBIOTIC_VISACOM_TRACE` logs every
 interface asked for and every error to `%TEMP%\symbiotic-visacom.log`.
 
-## The configuration window: symbiotic-config
+## Symbiotic Explorer: symbiotic-explorer
 
-`symbiotic-config` (a Start menu entry on Windows, a menu entry on Linux) shows the GPIB boards with their
+`symbiotic-explorer` (**Symbiotic Explorer** in the Start menu on Windows and the menu on Linux; **Symbiotic** in
+Applications on macOS) shows the GPIB boards with their
 instruments, the USB instruments, the LAN instruments and the serial ports, each instrument by the model its
 `*IDN?` answer names (an instrument that must not be sent `*IDN?` can be excluded, and any can be given a
 display name). An instrument's page has a console that queries, writes, reads, reads the status byte and
-clears the device through the VISA C API itself. The window edits what `symbiotic-ctl` edits: each board's T1
+clears the device through the VISA C API itself. Symbiotic Explorer edits what `symbiotic-ctl` edits: each board's T1
 level, the LAN instrument list and discovery switch (with a network scan), which serial ports are
 Prologix/AR488 controllers, and the aliases. English and Chinese, light and dark.
 
 It is a web page in the system's webview (WebView2 on Windows, WebKitGTK on Linux, WKWebView on macOS); the
 page talks to the program in-process, and nothing listens on a port. Some features are hidden unless
-switched on in `features.conf` in the configuration directory (the window writes the file, every switch at
+switched on in `features.conf` in the configuration directory (Symbiotic Explorer writes the file, every switch at
 its default, the first time it starts). `--lang en|zh-CN`, `--theme system|light|dark` and
 `--page settings|about|board:GPIB0|group:lan|group:usb|group:serial|instrument:<resource>` start it that way.
 
@@ -240,7 +244,7 @@ keeps the folder and the features chosen before.
 
 Features:
 
-- **Viper488 Symbiotic VISA** (required): the libraries, the daemon, the configuration window,
+- **Viper488 Symbiotic VISA** (required): the libraries, the daemon, Symbiotic Explorer,
   `symbiotic-ctl`, the C headers and import libraries, the VISA.NET and VISA COM assemblies.
 - **USBTMC instruments on WinUSB** (on by default): Windows has no USBTMC driver of its own, so an instrument
   with no driver cannot be used until something gives it one. This feature installs a driver package that
@@ -264,7 +268,7 @@ pyvisa needs no path once the router registration is on (its default library is 
 give it `C:\Program Files\Symbiotic\visa64.dll`. Never copy the DLL over `C:\Windows\System32\visa64.dll`:
 that one belongs to the IVI shared components or another installed VISA.
 
-The configuration window needs Microsoft WebView2, which Windows 11 has; where it is missing the installer
+Symbiotic Explorer needs Microsoft WebView2, which Windows 11 has; where it is missing the installer
 downloads and installs it.
 
 The MSI is not code-signed yet, so Windows SmartScreen may warn when it is run from a download.
@@ -276,9 +280,9 @@ newer; arm64 needs a 64-bit system, and is tested on a Raspberry Pi 5):
 
     sudo apt install ./symbiotic-visa-<v>-linux-amd64.deb      # or -linux-arm64.deb
 
-It installs `libvisa64.so`, the daemon, `symbiotic-ctl` and `symbiotic-config` in `/usr/lib/symbiotic`, links
-the two programs into `/usr/bin`, the headers into `/usr/include/symbiotic`, a menu entry (the window needs
-WebKitGTK 4.1) and the udev rules that let an ordinary user's daemon open the USB devices (the four adapters
+It installs `libvisa64.so`, the daemon, `symbiotic-ctl` and `symbiotic-explorer` in `/usr/lib/symbiotic`, links
+the two programs into `/usr/bin`, the headers into `/usr/include/symbiotic`, a menu entry (Symbiotic Explorer
+needs WebKitGTK 4.1) and the udev rules that let an ordinary user's daemon open the USB devices (the four adapters
 and any USBTMC instrument; no kernel driver is unbound). It does not take the system's `libvisa.so` name, so
 give pyvisa the path: `pyvisa.ResourceManager("/usr/lib/symbiotic/libvisa64.so")`. Serial ports need the
 user in `dialout`. Each user's configuration is in `~/.config/symbiotic`; the 82357B's firmware goes in its
@@ -292,7 +296,7 @@ directory, and install the udev rules with `sudo linux/install-udev.sh` (`--remo
 
 A `.dmg` (universal: Apple Silicon and Intel, macOS 11 and later) holding one `Symbiotic.app`: drag it onto
 Applications. No administrator password; upgrading replaces it, removing it is dragging it to the Bin (turn
-starting at login off in the window first, if you turned it on). Opening it shows the configuration window.
+starting at login off in Symbiotic Explorer first, if you turned it on). Opening it shows Symbiotic Explorer.
 The library pyvisa is given is
 `/Applications/Symbiotic.app/Contents/Frameworks/libvisa64.dylib`; `symbiotic-ctl` is in `Contents/MacOS`, the
 headers in `Contents/Resources/include`, and the daemon is the main program of a bundle of its own inside
@@ -321,14 +325,15 @@ Rust (stable), and for the Windows build from Linux, `cargo-xwin`, `clang-cl`, `
     tools/build_macos.sh                                           # on a Mac: Symbiotic.app (universal) in a .dmg
     tools/check.sh                                                 # every check that needs no hardware
 
-A Linux build of the whole workspace needs WebKitGTK's headers for the window (`libwebkit2gtk-4.1-dev`).
+A Linux build of the whole workspace needs WebKitGTK's headers for Symbiotic Explorer (`libwebkit2gtk-4.1-dev`).
 
 ## Limits
 
 - Not implemented: VXI, PXI, shared memory and trigger mapping (no such resources); TLS and SASL for
   HiSLIP; `viGpibControlATN` and `viGpibPassControl`.
 - GPIB secondary addresses work on the USB adapters, not on a Prologix/AR488.
-- Not yet verified with real hardware: Prologix controllers and LAN/GPIB gateways.
+- Not yet verified with real hardware: Prologix controllers and the Agilent E5810A (an E5810A-compatible
+  gateway has been).
 - **32-bit programs on a machine with NI-VISA**: NI installs its own VISA as `SysWOW64\visa32.dll` instead of
   the IVI router, so a 32-bit program that loads `visa32.dll` by name gets NI-VISA only. VISA COM is not
   affected. Copying our `visa32.dll` into such a program's own folder makes it find ours first.

@@ -906,11 +906,19 @@ function instrumentPane(m, r) {
 const CONSOLE_ICON = ["M4 17l6-6-6-6", "M12 19h8"];
 const GLOBE = ["circle cx=12 cy=12 r=9", "M3 12h18", "M12 3a14 14 0 0 1 0 18", "M12 3a14 14 0 0 0 0 18"];
 // A network instrument's web page (LXI's, on port 80): asked once per host while it answers, and a button that opens it
-// in the system's browser when there is one. Not a gateway's GPIB instrument: the page there is the gateway's.
+// in the system's browser when there is one. Not a gateway's GPIB instrument: the page there is the gateway's, on the
+// gateway's own page.
 function webButton(it) {
   if (interfaceOf(it.resource).group !== "lan" || isGatewayDevice(it.resource) || !it.online) return null;
+  return hostWebButton(lanHost(it.resource));
+}
+// A LAN/GPIB gateway's own page, asked as an instrument's is, while the gateway answers.
+function gatewayWebButton(gw) {
+  return gw.online ? hostWebButton(gw.ip) : null;
+}
+function hostWebButton(host) {
   // Bare: web_page takes an IPv6 address without its brackets.
-  const host = lanHost(it.resource).replace(/^\[(.*)\]$/, "$1");
+  host = host.replace(/^\[(.*)\]$/, "$1");
   const url = (need("web:" + host, "web_page", { host }) || {}).value;
   if (!url) return null;
   return el("button", { type: "button", class: "iconbtn", title: t("action.open_web", { url }), "aria-label": t("action.open_web", { url }),
@@ -1104,7 +1112,7 @@ function gatewayBlock(g, row, hint = true) {
   const f = gwFound.get(g.ip);
   return el("div", { class: "rows" },
     el("div", { class: "listrow static" },
-      el("span", { class: "label" }, el("span", { class: "mono" }, g.ip), el("span", { class: "sub" }, t("lan.gateway", { address: g.address }))),
+      el("span", { class: "label" }, el("span", { class: "mono" }, g.ip), el("span", { class: "sub", title: t("lan.gateway_controller_hint") }, t("lan.gateway", { address: g.address }))),
       el("button", { type: "button", disabled: !!(f && f.loading), onclick: async () => {
         gwFound.set(g.ip, { loading: true }); render();
         try { gwFound.set(g.ip, { value: await invoke("lan_gateway_find", { ip: g.ip }) }); }
@@ -1133,7 +1141,7 @@ function gatewayPane(m, ip) {
     listed.has(n) ? el("span", { class: "muted" }, t("lan.listed"))
       : el("button", { type: "button", disabled: busy.has("lan:list"), onclick: () => add(n) }, t("action.add")));
   return [
-    head(t("lan.gateway_kicker"), ip, null),
+    head(t("lan.gateway_kicker"), ip, null, gatewayWebButton(gw)),
     tip(box(t("count.instruments", { n: gw.instruments.length }), null,
       gw.instruments.length ? el("div", {}, gw.instruments.map(it => listRow(it, gatewayShort)))
         : el("div", { class: "hint" }, t("lan.gateway_empty")),
