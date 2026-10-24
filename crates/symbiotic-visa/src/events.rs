@@ -26,7 +26,7 @@ pub(crate) fn stop_srq(ev: &Events) {
         stop.store(true, Ordering::SeqCst);
     }
     st.srq = (false, false);
-    st.queue.retain(|e| e.ty != VI_EVENT_SERVICE_REQ);
+    // What is queued stays until it is waited for or discarded (VPP-4.3 RULE 3.7.2).
     ev.cv.notify_all();
 }
 
@@ -221,6 +221,7 @@ pub unsafe extern "system" fn viEnableEvent(vi: ViSession, ty: u32, mech: u16, _
             return VI_ERROR_INV_MECH;
         }
         // An exception is for handlers only (VPP-4.3 3.7.2); "all mechanisms" means that one.
+        let original = mech;
         let mech = if ty == VI_EVENT_EXCEPTION {
             if mech != VI_ALL_MECH && mech & VI_QUEUE != 0 {
                 return VI_ERROR_INV_MECH;
@@ -245,6 +246,12 @@ pub unsafe extern "system" fn viEnableEvent(vi: ViSession, ty: u32, mech: u16, _
         let (already, need_worker) = {
             let mut st = ev.st.lock().unwrap();
             let (want_q, want_h) = (mech & VI_QUEUE != 0, mech & VI_HNDLR != 0);
+            // Handlers asked for by name need one to call (VPP-4.3 RULE 3.7.6); "all mechanisms"
+            // is not asking for them by name.
+            if want_h && original != VI_ALL_MECH && !st.handlers.iter().any(|h| h.0 == ty) {
+                return VI_ERROR_HNDLR_NINSTALLED;
+            }
+            ev.enabled_once.store(true, Ordering::SeqCst);
             let m = st.mech(ty);
             // "Already enabled" is a warning for exactly this: everything asked for was on before.
             let already = (want_q || want_h) && (!want_q || m.0) && (!want_h || m.1);
@@ -289,9 +296,9 @@ pub unsafe extern "system" fn viDisableEvent(vi: ViSession, ty: u32, mech: u16) 
             for t in types {
                 let mut m = *st.mech(*t);
                 was |= m.0 || m.1;
+                // What is queued stays until it is waited for or discarded (VPP-4.3 RULE 3.7.2).
                 if mech & VI_QUEUE != 0 {
                     m.0 = false;
-                    st.queue.retain(|e| e.ty != *t);
                 }
                 if mech & VI_HNDLR != 0 {
                     m.1 = false;
@@ -343,12 +350,13 @@ pub unsafe extern "system" fn viWaitOnEvent(vi: ViSession, ty: u32, tmo: u32, ou
         let deadline = (tmo != VI_TMO_INFINITE).then(|| std::time::Instant::now() + std::time::Duration::from_millis(tmo as u64));
         let mut st = ev.st.lock().unwrap();
         let e = loop {
-            // Events are only queued while the queue mechanism is enabled for their type.
-            if !types.iter().any(|t| st.mech(*t).0) {
-                return VI_ERROR_NOT_ENABLED;
-            }
+            // What is queued comes out whether or not its type is still enabled (VPP-4.3 RULE
+            // 3.7.21); waiting for more needs the queue mechanism on, as only then is more queued.
             if let Some(i) = st.queue.iter().position(|e| types.contains(&e.ty)) {
                 break st.queue.remove(i).unwrap();
+            }
+            if !types.iter().any(|t| st.mech(*t).0) {
+                return VI_ERROR_NOT_ENABLED;
             }
             let slice = match deadline {
                 Some(d) => {

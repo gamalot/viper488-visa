@@ -58,6 +58,8 @@ pub(crate) struct Events {
     pub(crate) cv: Condvar,
     /// Told when a handler's call ends.
     pub(crate) returned: Condvar,
+    /// Once viEnableEvent has been called, VI_ATTR_MAX_QUEUE_LENGTH is read-only (VPP-4.3 RULE 3.2.6).
+    pub(crate) enabled_once: AtomicBool,
 }
 
 /// What a USBTMC session knows of its instrument, from its name and its descriptors.

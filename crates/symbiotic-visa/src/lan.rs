@@ -181,7 +181,7 @@ pub fn clear(s: &LanSess) -> i32 {
 
 pub fn trigger(s: &LanSess, protocol: u16) -> i32 {
     if protocol != 0 {
-        return VI_ERROR_NSUP_MODE;
+        return VI_ERROR_INV_PROT;
     }
     let t = s.tmo();
     if strings(s) {
@@ -366,26 +366,26 @@ pub unsafe fn get_attribute(s: &LanSess, attr: u32, out: *mut c_void) -> i32 {
         }
         _ => {}
     }
-    // HiSLIP's own, and a SOCKET's TCP options.
+    // HiSLIP's own, and the TCP options.
     match attr {
         VI_ATTR_TCPIP_HISLIP_OVERLAP_EN | VI_ATTR_TCPIP_HISLIP_VERSION | VI_ATTR_TCPIP_HISLIP_MAX_MESSAGE_KB if t.is_hislip() => {
             let mut g = s.conn.lock().unwrap();
             let Some(h) = g.hislip() else { return VI_ERROR_NSUP_ATTR };
             match attr {
-                // This client runs synchronized mode, whatever the instrument prefers.
-                VI_ATTR_TCPIP_HISLIP_OVERLAP_EN => put(out as *mut u16, 0u16),
+                // The mode in use: the instrument's choice at Initialize, then the last device clear's.
+                VI_ATTR_TCPIP_HISLIP_OVERLAP_EN => put(out as *mut u16, h.overlap as u16),
                 // ViVersion: major in the top 12 bits, minor in the next 12 (0x00100000 is 1.0).
                 VI_ATTR_TCPIP_HISLIP_VERSION => put(out as *mut u32, ((h.version as u32 >> 8) << 20) | ((h.version as u32 & 0xFF) << 8)),
                 _ => put(out as *mut u32, (h.our_max / 1024) as u32),
             }
             return VI_SUCCESS;
         }
-        VI_ATTR_TCPIP_NODELAY | VI_ATTR_TCPIP_KEEPALIVE if t.class() == "SOCKET" => {
-            let mut g = s.conn.lock().unwrap();
-            let Some(k) = g.socket() else { return VI_ERROR_NSUP_ATTR };
-            let on = if attr == VI_ATTR_TCPIP_NODELAY { k.nodelay() } else { k.keepalive() };
-            put(out as *mut u16, on as u16);
-            return VI_SUCCESS;
+        // RULE 5.1.17 asks them of a HiSLIP INSTR; a VXI-11 one has them too.
+        VI_ATTR_TCPIP_NODELAY | VI_ATTR_TCPIP_KEEPALIVE => {
+            return match s.conn.lock().unwrap().tcp_opt(tcp_opt(attr)) {
+                Ok(on) => put(out as *mut u16, on as u16).ok_(),
+                Err(e) => map_err(&e),
+            };
         }
         _ => {}
     }
@@ -430,12 +430,29 @@ pub unsafe fn get_attribute(s: &LanSess, attr: u32, out: *mut c_void) -> i32 {
     VI_SUCCESS
 }
 
+fn tcp_opt(attr: u32) -> lan::TcpOpt {
+    if attr == VI_ATTR_TCPIP_NODELAY { lan::TcpOpt::NoDelay } else { lan::TcpOpt::KeepAlive }
+}
+
 pub fn set_attribute(s: &LanSess, attr: u32, value: u64) -> i32 {
     let t = &s.target;
     let socket = t.class() == "SOCKET";
     match attr {
+        // A change is a device clear that asks for the mode (VPP-4.3 5.1.2); an instrument that
+        // will not go leaves the session as it was, and says so as NSUP_ATTR_STATE.
         VI_ATTR_TCPIP_HISLIP_OVERLAP_EN if t.is_hislip() => {
-            return if value == 0 { VI_SUCCESS } else { VI_ERROR_NSUP_ATTR_STATE }; // synchronized mode only
+            let want = value != 0;
+            let tmo = s.tmo();
+            let mut g = s.conn.lock().unwrap();
+            let Some(h) = g.hislip() else { return VI_ERROR_NSUP_ATTR };
+            if h.overlap == want {
+                return VI_SUCCESS;
+            }
+            return match h.set_overlap(want, lan::Deadline::after(tmo)) {
+                Ok(()) if h.overlap == want => VI_SUCCESS,
+                Ok(()) => VI_ERROR_NSUP_ATTR_STATE,
+                Err(e) => map_err(&e),
+            };
         }
         VI_ATTR_TCPIP_HISLIP_VERSION if t.is_hislip() => return VI_ERROR_ATTR_READONLY,
         VI_ATTR_TCPIP_HISLIP_MAX_MESSAGE_KB if t.is_hislip() => {
@@ -448,13 +465,9 @@ pub fn set_attribute(s: &LanSess, attr: u32, value: u64) -> i32 {
                 Err(e) => map_err(&e),
             };
         }
-        VI_ATTR_TCPIP_NODELAY | VI_ATTR_TCPIP_KEEPALIVE if socket => {
-            let mut g = s.conn.lock().unwrap();
-            let Some(k) = g.socket() else { return VI_ERROR_NSUP_ATTR };
-            let r = if attr == VI_ATTR_TCPIP_NODELAY { k.set_nodelay(value != 0) } else { k.set_keepalive(value != 0) };
-            return match r {
+        VI_ATTR_TCPIP_NODELAY | VI_ATTR_TCPIP_KEEPALIVE => {
+            return match s.conn.lock().unwrap().set_tcp_opt(tcp_opt(attr), value != 0) {
                 Ok(()) => VI_SUCCESS,
-                Err(lan::Error::Unsupported) => VI_ERROR_NSUP_ATTR_STATE,
                 Err(e) => map_err(&e),
             };
         }
@@ -479,6 +492,7 @@ pub fn set_attribute(s: &LanSess, attr: u32, value: u64) -> i32 {
         VI_ATTR_TERMCHAR_EN => a.termchar_en = value != 0,
         VI_ATTR_SEND_END_EN => a.send_end = value != 0,
         VI_ATTR_SUPPRESS_END_EN => a.suppress_end = value != 0,
+        VI_ATTR_MAX_QUEUE_LENGTH if s.ev.enabled_once.load(Ordering::SeqCst) => return VI_ERROR_ATTR_READONLY,
         VI_ATTR_MAX_QUEUE_LENGTH => a.max_queue = value as u32,
         VI_ATTR_USER_DATA_32 | VI_ATTR_USER_DATA_64 => a.user_data = value,
         VI_ATTR_RSRC_CLASS | VI_ATTR_RSRC_NAME | VI_ATTR_RSRC_IMPL_VERSION | VI_ATTR_RSRC_LOCK_STATE

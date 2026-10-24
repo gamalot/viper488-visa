@@ -15,32 +15,16 @@ pub struct Conn {
     s: TcpStream,
     buf: Vec<u8>,
     closed: Option<String>,
-    keepalive: bool,
 }
 
 impl Conn {
     pub fn open(host: &str, port: u16, within: Duration) -> Result<Conn, Error> {
-        Ok(Conn { s: super::connect(host, port, within)?, buf: Vec::new(), closed: None, keepalive: false })
+        Ok(Conn { s: super::connect(host, port, within)?, buf: Vec::new(), closed: None })
     }
 
-    /// VI_ATTR_TCPIP_NODELAY: Nagle's algorithm off (connect() turns it off; VISA's default).
-    pub fn nodelay(&self) -> bool {
-        self.s.nodelay().unwrap_or(true)
-    }
-
-    pub fn set_nodelay(&mut self, on: bool) -> Result<(), Error> {
-        self.s.set_nodelay(on).map_err(|e| Error::Io(e.to_string()))
-    }
-
-    /// VI_ATTR_TCPIP_KEEPALIVE: TCP keep-alive probes, off by default (VISA's default).
-    pub fn keepalive(&self) -> bool {
-        self.keepalive
-    }
-
-    pub fn set_keepalive(&mut self, on: bool) -> Result<(), Error> {
-        set_keepalive(&self.s, on)?;
-        self.keepalive = on;
-        Ok(())
+    /// The connection, for its TCP options.
+    pub(super) fn stream(&self) -> &TcpStream {
+        &self.s
     }
 
     /// Take what the socket has, waiting at most `wait` (`None`: for ever) for the first byte.
@@ -163,11 +147,6 @@ impl Conn {
     }
 }
 
-/// SO_KEEPALIVE, with the system's own timing (VISA's attribute says on or off, nothing more).
-fn set_keepalive(s: &TcpStream, on: bool) -> Result<(), Error> {
-    socket2::SockRef::from(s).set_keepalive(on).map_err(|e| Error::Io(format!("SO_KEEPALIVE: {e}")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,12 +214,15 @@ mod tests {
     }
 
     #[test]
-    fn keepalive_can_be_set_here_too() {
-        let mut c = Conn::open("127.0.0.1", serve(b"x\n", 1), Duration::from_secs(1)).unwrap();
-        c.set_keepalive(true).unwrap();
-        assert!(c.keepalive() && socket2::SockRef::from(&c.s).keepalive().unwrap());
-        c.set_keepalive(false).unwrap();
-        assert!(!socket2::SockRef::from(&c.s).keepalive().unwrap());
+    fn keepalive_and_nodelay_can_be_set_here_too() {
+        use super::super::{Session, TcpOpt};
+        let mut c = Session::Socket(Conn::open("127.0.0.1", serve(b"x\n", 1), Duration::from_secs(1)).unwrap());
+        assert_eq!((c.tcp_opt(TcpOpt::NoDelay).unwrap(), c.tcp_opt(TcpOpt::KeepAlive).unwrap()), (true, false));
+        for on in [true, false] {
+            c.set_tcp_opt(TcpOpt::KeepAlive, on).unwrap();
+            c.set_tcp_opt(TcpOpt::NoDelay, on).unwrap();
+            assert_eq!((c.tcp_opt(TcpOpt::KeepAlive).unwrap(), c.tcp_opt(TcpOpt::NoDelay).unwrap()), (on, on));
+        }
     }
 
     #[test]

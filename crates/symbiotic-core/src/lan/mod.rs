@@ -109,6 +109,30 @@ fn connect(host: &str, port: u16, within: Duration) -> Result<TcpStream, Error> 
     Err(Error::NotFound(last))
 }
 
+/// A TCP option an application turns on and off: VI_ATTR_TCPIP_NODELAY (on from `connect`) and
+/// VI_ATTR_TCPIP_KEEPALIVE (off, VISA's default; on, it probes with the system's own timing).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TcpOpt {
+    NoDelay,
+    KeepAlive,
+}
+
+impl TcpOpt {
+    fn get(self, s: &TcpStream) -> std::io::Result<bool> {
+        match self {
+            TcpOpt::NoDelay => s.nodelay(),
+            TcpOpt::KeepAlive => socket2::SockRef::from(s).keepalive(),
+        }
+    }
+
+    fn set(self, s: &TcpStream, on: bool) -> std::io::Result<()> {
+        match self {
+            TcpOpt::NoDelay => s.set_nodelay(on),
+            TcpOpt::KeepAlive => socket2::SockRef::from(s).set_keepalive(on),
+        }
+    }
+}
+
 /// What viGpibControlREN asks for; the numbers are VISA's (`VI_GPIB_REN_*`), which HiSLIP's
 /// AsyncRemoteLocalControl codes happen to equal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -329,6 +353,27 @@ impl Session {
             Session::Vxi11(l) => Some(l.port),
             _ => None,
         }
+    }
+
+    /// A TCP option as the session's connection has it (HiSLIP's two channels are set together).
+    pub fn tcp_opt(&self, o: TcpOpt) -> Result<bool, Error> {
+        let s = match self {
+            Session::Vxi11(l) => l.stream(),
+            Session::Hislip(c) => c.stream(),
+            Session::Socket(c) => c.stream(),
+        };
+        o.get(s).map_err(|e| Error::Io(format!("{o:?}: {e}")))
+    }
+
+    /// Set a TCP option on every connection the session has: both of HiSLIP's channels (VXI-11's
+    /// interrupt channel is the instrument's connection to us, not ours).
+    pub fn set_tcp_opt(&mut self, o: TcpOpt, on: bool) -> Result<(), Error> {
+        let r = match self {
+            Session::Vxi11(l) => o.set(l.stream(), on),
+            Session::Hislip(c) => c.each_stream(|s| o.set(s, on)),
+            Session::Socket(c) => o.set(c.stream(), on),
+        };
+        r.map_err(|e| Error::Io(format!("{o:?}: {e}")))
     }
 
     /// Throw away whatever has been received and not read (viFlush's discard-read-buffer).

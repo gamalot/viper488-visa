@@ -240,7 +240,7 @@ pub unsafe extern "system" fn viAssertTrigger(vi: ViSession, protocol: u16) -> V
             return VI_ERROR_NSUP_OPER; // addressed to an instrument; an INTFC session has none
         }
         if protocol != 0 {
-            return VI_ERROR_NSUP_MODE; // only VI_TRIG_PROT_DEFAULT: GET
+            return VI_ERROR_INV_PROT; // only VI_TRIG_PROT_DEFAULT: GET (VPP-4.3 6.1.7's code for the rest)
         }
         if let (Some(a), Target::Asrl(n)) = (s.asrl, s.t) {
             // `*TRG\n`, for an instrument that takes IEEE 488.2 strings; otherwise there is no trigger.
@@ -473,6 +473,11 @@ pub unsafe extern "system" fn viLock(
     vi: ViSession, lock_type: u32, timeout: u32, requested_key: *const c_char, access_key: *mut c_char,
 ) -> ViStatus {
     op(vi, "viLock", || {
+        // A key that would not come back whole in a 256-byte buffer is refused, not cut short
+        // (VPP-4.3 RULE 3.6.17): cut, two different keys could end up sharing one lock.
+        if lock_type == VI_SHARED_LOCK && !requested_key.is_null() && CStr::from_ptr(requested_key).to_bytes().len() >= 256 {
+            return VI_ERROR_INV_ACCESS_KEY;
+        }
         on_lan!(vi, |l| lan::lock(l, lock_type, timeout, cstr(requested_key).filter(|k| !k.is_empty()), access_key));
         let s = match snap(vi) {
             Ok(s) => s,

@@ -1,4 +1,4 @@
-//! HiSLIP (IVI-6.1), the client, in synchronized mode.
+//! HiSLIP (IVI-6.1), the client, in synchronized or overlapped mode.
 //!
 //! Two TCP connections to the same port: the synchronous channel carries the messages (Data, DataEnd, Trigger) and the
 //! answers; the asynchronous one carries requests that must not wait in line behind them (device clear, status query,
@@ -10,9 +10,13 @@
 //! - **The stream must never lose its place.** A timeout can land halfway through a header or a
 //!   payload. What arrived stays in the channel's buffer, and the current frame's remaining length
 //!   is kept, so the next read picks up exactly where this one stopped.
-//! - **Answers carry the MessageID of the message they answer.** Each message sent takes the next
-//!   id (from 0xFFFF_FF00, by 2); a Data or DataEnd that does not carry the last one sent is the
-//!   late answer to an earlier query and is dropped.
+//! - **Two modes (IVI-6.1 section 3), chosen by the instrument at Initialize and renegotiated by
+//!   every device clear.** Each message sent takes the next id (from 0xFFFF_FF00, by 2) in both.
+//!   Synchronized: an answer carries the MessageID of the message it answers, so a Data or DataEnd
+//!   that does not carry the last one sent is the late answer to an earlier query and is dropped,
+//!   and sending throws away what is left of an answer being read. Overlapped: answers queue up
+//!   in the order the queries went, numbered by the instrument's own count; nothing is dropped
+//!   but by a device clear, and a status query quotes the id of the last answer delivered.
 //! - **RMT-delivered.** Once a whole answer (through its DataEnd) has been read, the next message
 //!   sent says so, which is how the instrument knows the answer was taken.
 //! - **HiSLIP has no termination character.** VI_ATTR_TERMCHAR_EN is done here, in the data; the
@@ -216,10 +220,12 @@ impl Chan {
     }
 }
 
-/// The frame being read: how much of its payload is still to come, and whether it ends a message.
+/// The frame being read: how much of its payload is still to come, whether it ends a message,
+/// and its MessageID.
 struct Cur {
     end: bool,
     left: u64,
+    id: u32,
 }
 
 /// The asynchronous channel, and the service requests that went past while a request was waiting
@@ -257,8 +263,12 @@ pub struct Conn {
     cur: Option<Cur>,
     /// The protocol version the instrument chose (major << 8 | minor).
     pub version: u16,
-    /// The instrument prefers overlapped mode. Synchronized is what this client does either way.
+    /// Overlapped mode (else synchronized): what the instrument said at Initialize, then what the
+    /// last device clear settled on.
     pub overlap: bool,
+    /// Overlapped mode: the MessageID of the last of the instrument's messages read to its end,
+    /// which a status query quotes (IVI-6.1 3.2.2); FIRST_ID - 2 until there is one.
+    delivered: u32,
     /// The largest message this client said it takes (AsyncMaximumMessageSize), in bytes.
     pub our_max: u64,
 }
@@ -299,7 +309,8 @@ impl Conn {
             rmt: false,
             cur: None,
             version,
-            overlap: h.control != 0,
+            overlap: h.control & 1 != 0,
+            delivered: FIRST_ID.wrapping_sub(2),
             our_max: OUR_MAX,
         };
         match c.ask(ASYNC_MAXIMUM_MESSAGE_SIZE, 0, 0, &OUR_MAX.to_be_bytes(), ASYNC_MAXIMUM_MESSAGE_SIZE_RESPONSE, dl) {
@@ -349,17 +360,31 @@ impl Conn {
         }
     }
 
+    /// The synchronous channel, for its TCP options.
+    pub(super) fn stream(&self) -> &TcpStream {
+        &self.sync.s
+    }
+
+    /// `f` on both channels' connections, the synchronous one first.
+    pub(super) fn each_stream(&self, mut f: impl FnMut(&TcpStream) -> std::io::Result<()>) -> std::io::Result<()> {
+        f(&self.sync.s)?;
+        f(&self.asy.m.lock().unwrap().chan.s)
+    }
+
     /// Start watching for service requests: the ones that went past before this are forgotten.
     pub fn watch_srq(&mut self) -> SrqWatch {
         self.asy.take().srq = 0;
         SrqWatch(self.asy.clone())
     }
 
-    /// Send one message on the synchronous channel. What is left of an answer being read belongs
-    /// to nobody after this.
+    /// Send one message on the synchronous channel. In synchronized mode what is left of an
+    /// answer being read belongs to nobody after this (IVI-6.1 3.1.2, rule 3); in overlapped mode
+    /// it is still the caller's.
     fn send(&mut self, ty: u8, payload: &[u8], dl: &Deadline) -> Result<(), Error> {
-        if let Some(c) = self.cur.take() {
-            self.sync.skip += c.left;
+        if !self.overlap {
+            if let Some(c) = self.cur.take() {
+                self.sync.skip += c.left;
+            }
         }
         self.sync.send(ty, self.rmt as u8, self.next_id, payload, dl)?;
         self.rmt = false;
@@ -399,8 +424,8 @@ impl Conn {
                     Err(e) => return Err(e),
                 };
                 match h.ty {
-                    DATA | DATA_END if Some(h.param) == self.last_id || h.param == u32::MAX => {
-                        self.cur = Some(Cur { end: h.ty == DATA_END, left: h.len });
+                    DATA | DATA_END if self.overlap || Some(h.param) == self.last_id || h.param == u32::MAX => {
+                        self.cur = Some(Cur { end: h.ty == DATA_END, left: h.len, id: h.param });
                     }
                     // A late answer to an earlier message, or an Interrupted: not this read's.
                     DATA | DATA_END => self.sync.skip = h.len,
@@ -441,6 +466,7 @@ impl Conn {
             }
             if c.left == 0 {
                 let end = c.end;
+                self.delivered = c.id;
                 self.cur = None;
                 if end {
                     self.rmt = true;
@@ -460,22 +486,37 @@ impl Conn {
     }
 
     /// AsyncDeviceClear, then DeviceClearComplete on the synchronous channel and everything up to
-    /// its acknowledgement thrown away; message ids start again.
+    /// its acknowledgement thrown away; message ids start again. The session stays in its mode.
     pub fn clear(&mut self, dl: Deadline) -> Result<(), Error> {
-        let (h, _) = self.ask(ASYNC_DEVICE_CLEAR, 0, 0, &[], ASYNC_DEVICE_CLEAR_ACKNOWLEDGE, dl)?;
+        self.clear_asking(self.overlap, dl)
+    }
+
+    /// Ask for overlapped mode, or synchronized: a device clear that requests it (IVI-6.1 6.12.1).
+    /// The instrument may say no; `overlap` is what it settled on.
+    pub fn set_overlap(&mut self, overlapped: bool, dl: Deadline) -> Result<(), Error> {
+        self.clear_asking(overlapped, dl)
+    }
+
+    /// A device clear whose DeviceClearComplete requests `overlapped` -- the session's own mode on
+    /// a plain clear, never the instrument's proposal in AsyncDeviceClearAcknowledge, or the first
+    /// viClear would change modes -- and the mode its DeviceClearAcknowledge settles on.
+    fn clear_asking(&mut self, overlapped: bool, dl: Deadline) -> Result<(), Error> {
+        self.ask(ASYNC_DEVICE_CLEAR, 0, 0, &[], ASYNC_DEVICE_CLEAR_ACKNOWLEDGE, dl)?;
         if let Some(c) = self.cur.take() {
             self.sync.skip += c.left;
         }
-        self.sync.send(DEVICE_CLEAR_COMPLETE, h.control, 0, &[], &dl)?;
-        loop {
+        self.sync.send(DEVICE_CLEAR_COMPLETE, overlapped as u8, 0, &[], &dl)?;
+        let agreed = loop {
             let h = self.sync.header(&dl)?;
             self.sync.skip = h.len;
             if h.ty == DEVICE_CLEAR_ACKNOWLEDGE {
-                break;
+                break h.control;
             }
-        }
+        };
+        self.overlap = agreed & 1 != 0;
         self.next_id = FIRST_ID;
         self.last_id = None;
+        self.delivered = FIRST_ID.wrapping_sub(2);
         self.rmt = false;
         Ok(())
     }
@@ -485,8 +526,11 @@ impl Conn {
     }
 
     pub fn read_stb(&mut self, dl: Deadline) -> Result<u8, Error> {
-        // The message id is the next one to be sent, as pyvisa-py does it.
-        let (h, _) = self.ask(ASYNC_STATUS_QUERY, self.rmt as u8, self.next_id, &[], ASYNC_STATUS_RESPONSE, dl)?;
+        // Synchronized: the last id sent, FIRST_ID - 2 before any (IVI-6.1 6.14); an instrument
+        // that finds it is not the last message it received reports MAV clear (6.14.3).
+        // Overlapped: the last of the instrument's messages read (3.2.2), from which it works MAV out.
+        let id = if self.overlap { self.delivered } else { self.next_id.wrapping_sub(2) };
+        let (h, _) = self.ask(ASYNC_STATUS_QUERY, self.rmt as u8, id, &[], ASYNC_STATUS_RESPONSE, dl)?;
         self.rmt = false;
         Ok(h.control)
     }
@@ -575,7 +619,9 @@ impl SrqWatch {
 #[cfg(test)]
 pub(crate) mod fake {
     //! A HiSLIP instrument in threads: answers `*IDN?` (in `chunk`-sized Data frames, the last a
-    //! DataEnd), answers other queries with nothing, and handles the asynchronous requests.
+    //! DataEnd) and `*OPC?`, answers other queries with nothing, and handles the asynchronous
+    //! requests. It starts in overlapped mode if `overlapped`, and a device clear puts it in the mode
+    //! asked for unless `sync_only`; in overlapped mode its answers carry its own count.
     use super::*;
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
@@ -591,6 +637,12 @@ pub(crate) mod fake {
         pub locked: bool,
         /// The asynchronous channel, for pushing service requests: a message `SRQ` asks for one.
         pub asy: Option<TcpStream>,
+        pub overlapped: bool,
+        pub sync_only: bool,
+        /// Overlapped mode: the id the next Data or DataEnd goes out with.
+        pub reply_id: u32,
+        /// The MessageIDs status queries quoted.
+        pub stb_ids: Vec<u32>,
     }
 
     fn read_msg(s: &mut TcpStream) -> Option<(Header, Vec<u8>)> {
@@ -617,7 +669,12 @@ pub(crate) mod fake {
                 std::thread::spawn(move || {
                     let Some((h, _)) = read_msg(&mut s) else { return };
                     if h.ty == INITIALIZE {
-                        s.write_all(&encode(INITIALIZE_RESPONSE, 0, 0x0100_0000 | 7, &[])).unwrap();
+                        let mode = {
+                            let mut d = dev.lock().unwrap();
+                            d.reply_id = FIRST_ID;
+                            d.overlapped as u8
+                        };
+                        s.write_all(&encode(INITIALIZE_RESPONSE, mode, 0x0100_0000 | 7, &[])).unwrap();
                         sync_loop(s, dev);
                     } else if h.ty == ASYNC_INITIALIZE {
                         s.write_all(&encode(ASYNC_INITIALIZE_RESPONSE, 0, 0, &[])).unwrap();
@@ -643,19 +700,34 @@ pub(crate) mod fake {
                         let asy = d.asy.as_mut().unwrap();
                         asy.write_all(&encode(ASYNC_SERVICE_REQUEST, 0x50, 0, &[])).unwrap();
                     }
-                    if msg.starts_with(b"*IDN?") {
-                        let id = d.stale_id.take().unwrap_or(h.param);
-                        let a = d.answer.clone();
+                    let answer = if msg.starts_with(b"*IDN?") {
+                        Some(d.answer.clone())
+                    } else if msg.starts_with(b"*OPC?") {
+                        Some(b"1\n".to_vec())
+                    } else {
+                        None
+                    };
+                    if let Some(a) = answer {
                         let chunk = d.chunk.max(1);
                         let parts: Vec<&[u8]> = a.chunks(chunk).collect();
                         for (i, part) in parts.iter().enumerate() {
                             let ty = if i + 1 == parts.len() { DATA_END } else { DATA };
+                            let id = if d.overlapped {
+                                d.reply_id = d.reply_id.wrapping_add(2);
+                                d.reply_id.wrapping_sub(2)
+                            } else {
+                                d.stale_id.take().unwrap_or(h.param)
+                            };
                             s.write_all(&encode(ty, 0, id, part)).unwrap();
                         }
                     }
                     msg.clear();
                 }
-                DEVICE_CLEAR_COMPLETE => s.write_all(&encode(DEVICE_CLEAR_ACKNOWLEDGE, h.control, 0, &[])).unwrap(),
+                DEVICE_CLEAR_COMPLETE => {
+                    d.overlapped = h.control & 1 != 0 && !d.sync_only;
+                    d.reply_id = FIRST_ID;
+                    s.write_all(&encode(DEVICE_CLEAR_ACKNOWLEDGE, d.overlapped as u8, 0, &[])).unwrap();
+                }
                 _ => {}
             }
         }
@@ -667,11 +739,13 @@ pub(crate) mod fake {
             let m = match h.ty {
                 ASYNC_MAXIMUM_MESSAGE_SIZE => encode(ASYNC_MAXIMUM_MESSAGE_SIZE_RESPONSE, 0, 0, &(HEADER as u64 + 300).to_be_bytes()),
                 ASYNC_STATUS_QUERY => {
+                    d.stb_ids.push(h.param);
                     // An unrequested service request first: the client must pass over it.
                     s.write_all(&encode(20, 0x40, 0, &[])).unwrap();
                     encode(ASYNC_STATUS_RESPONSE, 0x10, 0, &[])
                 }
-                ASYNC_DEVICE_CLEAR => encode(ASYNC_DEVICE_CLEAR_ACKNOWLEDGE, 0, 0, &[]),
+                // It proposes the other mode: a client asks for the session's own, not the proposal.
+                ASYNC_DEVICE_CLEAR => encode(ASYNC_DEVICE_CLEAR_ACKNOWLEDGE, !d.overlapped as u8, 0, &[]),
                 ASYNC_LOCK if h.control == 1 => {
                     let ok = !d.locked;
                     d.locked = true;
@@ -735,6 +809,89 @@ mod tests {
         let got = got(&dev, 2);
         assert_eq!((got[0].1, got[0].2), (0, FIRST_ID));
         assert_eq!((got[1].1, got[1].2), (1, FIRST_ID + 2));
+    }
+
+    #[test]
+    fn tcp_options_reach_both_channels() {
+        use super::super::{Session, TcpOpt};
+        let dev = idn(b"x\n", 100);
+        let mut s = Session::Hislip(open(&dev));
+        s.set_tcp_opt(TcpOpt::KeepAlive, true).unwrap();
+        assert!(s.tcp_opt(TcpOpt::KeepAlive).unwrap());
+        let Session::Hislip(c) = &s else { unreachable!() };
+        let mut on = vec![];
+        c.each_stream(|t| socket2::SockRef::from(t).keepalive().map(|k| on.push(k))).unwrap();
+        assert_eq!(on, [true, true]);
+    }
+
+    fn query(c: &mut Conn, q: &[u8]) -> Vec<u8> {
+        c.write(q, true, dl()).unwrap();
+        c.read(1000, None, false, dl()).unwrap().data
+    }
+
+    #[test]
+    fn overlapped_from_the_start_queues_answers_and_keeps_a_part_read_one() {
+        let dev = idn(b"FAKE,HISLIP,0,1.0\n", 5);
+        dev.lock().unwrap().overlapped = true;
+        let mut c = open(&dev);
+        assert!(c.overlap, "the mode the instrument said at Initialize");
+        // A command with no answer first: from here on the instrument's ids are not ours.
+        c.write(b"*CLS\n", true, dl()).unwrap();
+        for q in [&b"*IDN?\n"[..], b"*OPC?\n", b"*IDN?\n"] {
+            c.write(q, true, dl()).unwrap();
+        }
+        let head = c.read(4, None, false, dl()).unwrap();
+        assert_eq!((head.data.as_slice(), head.end), (&b"FAKE"[..], ReadEnd::MaxCount));
+        c.write(b"*OPC?\n", true, dl()).unwrap(); // sending keeps what is left of it
+        assert_eq!(c.read(1000, None, false, dl()).unwrap().data, b",HISLIP,0,1.0\n");
+        assert_eq!(c.read(1000, None, false, dl()).unwrap().data, b"1\n");
+        assert_eq!(c.read(1000, None, false, dl()).unwrap().data, b"FAKE,HISLIP,0,1.0\n");
+        assert_eq!(c.read(1000, None, false, dl()).unwrap().data, b"1\n");
+    }
+
+    #[test]
+    fn a_status_query_quotes_by_the_mode() {
+        // Synchronized: the last id sent, FIRST_ID - 2 before any.
+        let dev = idn(b"x\n", 100);
+        let mut c = open(&dev);
+        c.read_stb(dl()).unwrap();
+        c.write(b"*CLS\n", true, dl()).unwrap();
+        c.read_stb(dl()).unwrap();
+        assert_eq!(dev.lock().unwrap().stb_ids, [FIRST_ID.wrapping_sub(2), FIRST_ID]);
+        // Overlapped: the last answer read, FIRST_ID - 2 before any and after a clear.
+        let dev = idn(b"x\n", 100);
+        dev.lock().unwrap().overlapped = true;
+        let mut c = open(&dev);
+        c.read_stb(dl()).unwrap();
+        c.write(b"*CLS\n", true, dl()).unwrap();
+        assert_eq!(query(&mut c, b"*IDN?\n"), b"x\n");
+        c.read_stb(dl()).unwrap();
+        c.clear(dl()).unwrap();
+        c.read_stb(dl()).unwrap();
+        assert_eq!(dev.lock().unwrap().stb_ids, [FIRST_ID.wrapping_sub(2), FIRST_ID, FIRST_ID.wrapping_sub(2)]);
+    }
+
+    #[test]
+    fn the_mode_is_asked_for_by_a_device_clear_and_a_clear_keeps_it() {
+        let dev = idn(b"x\n", 100);
+        let mut c = open(&dev);
+        c.set_overlap(true, dl()).unwrap();
+        assert!(c.overlap && dev.lock().unwrap().overlapped);
+        // The instrument now proposes synchronized; a plain clear still asks for overlapped.
+        c.clear(dl()).unwrap();
+        assert!(c.overlap);
+        let asked: Vec<u8> = dev.lock().unwrap().got.iter().filter(|m| m.0 == DEVICE_CLEAR_COMPLETE).map(|m| m.1).collect();
+        assert_eq!(asked, [1, 1]);
+        c.set_overlap(false, dl()).unwrap();
+        assert!(!c.overlap);
+        assert_eq!(query(&mut c, b"*IDN?\n"), b"x\n");
+        // One that has no overlapped mode says no, and the session stays synchronized.
+        let dev = idn(b"x\n", 100);
+        dev.lock().unwrap().sync_only = true;
+        let mut c = open(&dev);
+        c.set_overlap(true, dl()).unwrap();
+        assert!(!c.overlap);
+        assert_eq!(query(&mut c, b"*IDN?\n"), b"x\n");
     }
 
     #[test]

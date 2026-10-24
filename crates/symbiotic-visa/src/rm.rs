@@ -33,6 +33,9 @@ pub(crate) unsafe fn close(vi: ViSession) -> ViStatus {
         let mut gone: Vec<Arc<Object>> = Vec::new();
         let mut evs: Vec<Arc<Events>> = Vec::new();
         {
+            if vi == 0 {
+                return VI_WARN_NULL_OBJECT; // VPP-4.3 RULE 3.3.2: closing nothing is a warning
+            }
             let mut reg = registry().lock().unwrap();
             let Some(o) = reg.remove(&vi) else { return VI_ERROR_INV_OBJECT };
             transfers::forget(vi);

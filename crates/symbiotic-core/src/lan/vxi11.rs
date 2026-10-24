@@ -3,9 +3,10 @@
 //! The procedures and argument layouts are VXI-11's (rev 1.0, B.6); pyvisa-py's `protocols/vxi11.py` was a reference
 //! for how clients use them. Two rules:
 //!
-//! - The socket always waits longer than the timeout the device was given (`MARGIN`), and a
-//!   socket timeout ends the connection (`rpc::Rpc::call`): a late reply would be read as the
-//!   answer to the next call. The device's own io_timeout (error 15) is the ordinary timeout.
+//! - The socket waits a little longer than the timeout the device was given (`MARGIN`), so the
+//!   device's own io_timeout (error 15), with the bytes it had, is the ordinary timeout. The socket
+//!   running out is a timeout too, and the connection stays: replies are matched to calls by xid,
+//!   so the late one is dropped when it comes (`rpc::Rpc::call`).
 //! - A link is not a probe: through a LAN/GPIB gateway, create_link succeeds for an address with
 //!   nothing on it. Only VXI-11's own errors say anything is missing.
 //!
@@ -74,8 +75,12 @@ const REASON_REQCNT: u32 = 1;
 const REASON_CHR: u32 = 2;
 const REASON_END: u32 = 4;
 
-/// How much longer the socket waits than the device was told to.
-const MARGIN: Duration = Duration::from_secs(5);
+/// How much longer the socket waits than the device was told to: time for the device's own
+/// timeout reply to arrive.
+const MARGIN: Duration = Duration::from_secs(1);
+
+/// How long the socket waits for a call that carries no timeout of its own.
+const QUICK: Duration = Duration::from_secs(5);
 
 /// The most one device_read asks for.
 pub const READ_CHUNK: usize = 1 << 20;
@@ -234,14 +239,15 @@ impl Link {
         let mut rpc = Rpc::new(super::connect(host, port, within)?)?;
         let port = rpc.peer_port().unwrap_or(port);
         let (lock_device, lock_ms, wait) = match lock {
-            None => (false, 0, Some(within + MARGIN)),
-            Some(w) => (true, ms(w), w.map(|w| w + within + MARGIN)),
+            None => (false, 0, Some(within + QUICK)),
+            Some(w) => (true, ms(w), w.map(|w| w + within + QUICK)),
         };
         let mut a = Encoder::new();
         // The client id only shows up in the device's own logs; the process id is unique enough.
         a.u32(std::process::id()).bool(lock_device).u32(lock_ms).opaque(device.as_bytes());
         let r = rpc.call(CORE_PROG, CORE_VERS, CREATE_LINK, a.as_slice(), wait).map_err(|e| match e {
             Error::Lost(s) => Error::NotFound(s),
+            Error::Timeout => Error::NotFound(format!("{host}:{port} did not answer create_link")),
             e => e,
         })?;
         let mut d = Decoder::new(&r);
@@ -265,7 +271,7 @@ impl Link {
     fn create_link(&mut self, device: &str) -> Result<u32, Error> {
         let mut a = Encoder::new();
         a.u32(std::process::id()).bool(false).u32(0).opaque(device.as_bytes());
-        let r = self.call(CREATE_LINK, a.as_slice(), Some(MARGIN))?;
+        let r = self.call(CREATE_LINK, a.as_slice(), Some(QUICK))?;
         let mut d = Decoder::new(&r);
         match (d.u32(), d.u32()) {
             (Some(0), Some(lid)) => Ok(lid),
@@ -316,6 +322,11 @@ impl Link {
     /// The instrument's address behind a gateway.
     pub fn gpib(&self) -> Option<&super::name::Gpib> {
         self.gateway.as_ref()
+    }
+
+    /// The core channel, for its TCP options.
+    pub(super) fn stream(&self) -> &std::net::TcpStream {
+        self.rpc.stream()
     }
 
     /// Interface clear on the gateway's bus.
@@ -417,7 +428,10 @@ impl Link {
             let (io, wait) = io_times(&dl);
             let mut a = Encoder::new();
             a.u32(self.lid).u32(want.min(READ_CHUNK) as u32).u32(io).u32(0).u32(flags).u32(tc);
-            let r = self.call(DEVICE_READ, a.as_slice(), wait)?;
+            let r = match self.call(DEVICE_READ, a.as_slice(), wait) {
+                Err(Error::Timeout) if !out.is_empty() => return Ok(ReadResult { data: out, end: ReadEnd::Timeout }),
+                r => r?,
+            };
             let mut d = Decoder::new(&r);
             let (err, reason) = (d.u32().ok_or_else(truncated)?, d.u32().ok_or_else(truncated)?);
             let data = d.opaque(READ_CHUNK).ok_or_else(truncated)?;
@@ -462,13 +476,14 @@ impl Link {
     }
 
     /// VXI-11 has remote and local and nothing about REN or local lockout, so only the modes that
-    /// are one of those two are offered.
+    /// are one of those two are offered. VPP-4.3 RULE 6.5.6 asks for ASSERT_ADDRESS_LLO too, and
+    /// OBSERVATION 6.5.1 says it is ASSERT_ADDRESS here: remote, without the lockout.
     pub fn ren(&mut self, mode: Ren, dl: Deadline) -> Result<(), Error> {
         if self.gateway.is_some() {
             return self.gateway_ren(mode, dl);
         }
         match mode {
-            Ren::AssertAddress => self.generic(DEVICE_REMOTE, dl, "device_remote").map(|_| ()),
+            Ren::AssertAddress | Ren::AssertAddressLlo => self.generic(DEVICE_REMOTE, dl, "device_remote").map(|_| ()),
             Ren::AddressGtl | Ren::DeassertGtl => self.generic(DEVICE_LOCAL, dl, "device_local").map(|_| ()),
             _ => Err(Error::Unsupported),
         }
@@ -521,7 +536,7 @@ impl Link {
     pub fn unlock(&mut self) -> Result<(), Error> {
         let mut a = Encoder::new();
         a.u32(self.lid);
-        let r = self.call(DEVICE_UNLOCK, a.as_slice(), Some(MARGIN))?;
+        let r = self.call(DEVICE_UNLOCK, a.as_slice(), Some(QUICK))?;
         match Decoder::new(&r).u32() {
             Some(0) => Ok(()),
             Some(e) => Err(device_error(e, "device_unlock")),
@@ -552,7 +567,7 @@ impl Link {
         serve_interrupts(listener, device, inbox.clone()).map_err(|e| Error::Io(format!("the interrupt channel: {e}")))?;
         let mut a = Encoder::new();
         a.u32(u32::from(v4)).u32(port as u32).u32(INTR_PROG).u32(INTR_VERS).u32(DEVICE_TCP);
-        let r = self.call(CREATE_INTR_CHAN, a.as_slice(), Some(MARGIN)).and_then(|r| match Decoder::new(&r).u32() {
+        let r = self.call(CREATE_INTR_CHAN, a.as_slice(), Some(QUICK)).and_then(|r| match Decoder::new(&r).u32() {
             Some(0) => Ok(()),
             Some(e) => Err(device_error(e, "create_intr_chan")),
             None => Err(truncated()),
@@ -562,7 +577,7 @@ impl Link {
             return Err(e);
         }
         if let Err(e) = self.enable_srq(true) {
-            let _ = self.call(DESTROY_INTR_CHAN, &[], Some(MARGIN));
+            let _ = self.call(DESTROY_INTR_CHAN, &[], Some(QUICK));
             inbox.stop();
             return Err(e);
         }
@@ -582,7 +597,7 @@ impl Link {
     fn enable_srq(&mut self, on: bool) -> Result<(), Error> {
         let mut a = Encoder::new();
         a.u32(self.lid).bool(on).opaque(SRQ_HANDLE);
-        let r = self.call(DEVICE_ENABLE_SRQ, a.as_slice(), Some(MARGIN))?;
+        let r = self.call(DEVICE_ENABLE_SRQ, a.as_slice(), Some(QUICK))?;
         match Decoder::new(&r).u32() {
             Some(0) => Ok(()),
             Some(e) => Err(device_error(e, "device_enable_srq")),

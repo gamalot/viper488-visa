@@ -11,6 +11,7 @@ pub const VI_SUCCESS_NESTED_SHARED: i32 = 0x3FFF0099;
 pub const VI_SUCCESS_NESTED_EXCLUSIVE: i32 = 0x3FFF009A;
 pub const VI_SUCCESS_SYNC: i32 = 0x3FFF009B;
 pub const VI_SUCCESS_NCHAIN: i32 = 0x3FFF0098;
+pub const VI_WARN_NULL_OBJECT: i32 = 0x3FFF0082;
 
 macro_rules! err { ($($n:ident = $v:expr),* $(,)?) => { $(pub const $n: i32 = ($v as u32) as i32;)* } }
 err! {
@@ -39,6 +40,7 @@ err! {
     VI_ERROR_NSUP_OPER = 0xBFFF0067u32,
     VI_ERROR_RSRC_BUSY = 0xBFFF0072u32,
     VI_ERROR_INV_PARAMETER = 0xBFFF0078u32,
+    VI_ERROR_INV_PROT = 0xBFFF0079u32,
     VI_ERROR_CONN_LOST = 0xBFFF00A6u32,
     VI_ERROR_ABORT = 0xBFFF0030u32,
     VI_ERROR_INV_JOB_ID = 0xBFFF001Cu32,

@@ -166,19 +166,30 @@ pub fn parse(name: &str) -> Option<Target> {
         }
         return Some(Target { board, host, proto: Proto::Socket { port }, device: String::new() });
     }
-    if crate::resource::strip_prefix_ci(device, "hislip").is_some() {
-        let (sub, port) = match device.split_once(',') {
+    if let Some(rest) = crate::resource::strip_prefix_ci(device, "hislip") {
+        let (rest, port) = match rest.split_once(',') {
             Some((s, p)) => (s, port_of(p)?),
-            None => (device, HISLIP_PORT),
+            None => (rest, HISLIP_PORT),
         };
         if host_port.is_some() {
             return None;
         }
-        let proto = Proto::Hislip { port, sub: sub.to_string() };
+        // VISA matches the name in any case (VPP-4.3 RULE 4.3.17); an instrument may know only
+        // `hislip0` as sent. So the prefix goes lowercase.
+        let proto = Proto::Hislip { port, sub: format!("hislip{rest}") };
         return Some(Target { board, host, proto, device: device.to_string() });
     }
-    let proto = Proto::Vxi11 { port: host_port, device: device.to_string() };
+    let proto = Proto::Vxi11 { port: host_port, device: lower_prefix(device) };
     Some(Target { board, host, proto, device: device.to_string() })
+}
+
+/// The device name as the instrument is sent it: VISA matches names in any case (VPP-4.3 RULE
+/// 4.3.17), an instrument matches what it is sent, and may know `inst0` but not `INST0`. Only
+/// the leading letters go lowercase (`inst`, `gpib`, `usb`); what follows, a USB serial number
+/// among it, is the instrument's to read as it likes.
+fn lower_prefix(device: &str) -> String {
+    let n = device.bytes().take_while(u8::is_ascii_alphabetic).count();
+    device[..n].to_ascii_lowercase() + &device[n..]
 }
 
 #[cfg(test)]
@@ -210,12 +221,23 @@ mod tests {
     }
 
     #[test]
+    fn a_device_name_goes_to_the_instrument_with_a_lowercase_prefix() {
+        let v = p("TCPIP0::10.0.0.5::INST0::INSTR");
+        assert_eq!(v.proto, Proto::Vxi11 { port: None, device: "inst0".into() });
+        assert_eq!(v.name(), "TCPIP0::10.0.0.5::INST0::INSTR", "the name is as written");
+        let g = p("TCPIP0::10.0.0.5::GPIB0,5::INSTR");
+        assert_eq!(g.proto, Proto::Vxi11 { port: None, device: "gpib0,5".into() });
+        let h = p("TCPIP0::10.0.0.5::HISLIP0::INSTR");
+        assert_eq!(h.proto, Proto::Hislip { port: 4880, sub: "hislip0".into() });
+    }
+
+    #[test]
     fn hislip_and_socket_names() {
         let h = p("TCPIP0::10.0.0.5::hislip0::INSTR");
         assert_eq!(h.proto, Proto::Hislip { port: 4880, sub: "hislip0".into() });
         assert!(h.is_hislip());
         let h2 = p("TCPIP::10.0.0.5::HiSLIP1,4881");
-        assert_eq!(h2.proto, Proto::Hislip { port: 4881, sub: "HiSLIP1".into() });
+        assert_eq!(h2.proto, Proto::Hislip { port: 4881, sub: "hislip1".into() });
         assert_eq!(h2.name(), "TCPIP0::10.0.0.5::HiSLIP1,4881::INSTR");
         let s = p("TCPIP0::10.0.0.5::5025::SOCKET");
         assert_eq!((s.proto.clone(), s.class()), (Proto::Socket { port: 5025 }, "SOCKET"));
@@ -225,7 +247,8 @@ mod tests {
     #[test]
     fn gateway_names() {
         assert_eq!(p("TCPIP::gw::gpib0,5::INSTR").gpib(), Some(Gpib { iface: "gpib0".into(), pad: 5, sad: None }));
-        assert_eq!(p("TCPIP::gw::GPIB1,30,2").gpib(), Some(Gpib { iface: "GPIB1".into(), pad: 30, sad: Some(2) }));
+        // The interface link is made by this name, so it goes as the instrument knows it.
+        assert_eq!(p("TCPIP::gw::GPIB1,30,2").gpib(), Some(Gpib { iface: "gpib1".into(), pad: 30, sad: Some(2) }));
         for not in ["TCPIP::gw::gpib0", "TCPIP::gw::gpib0,31", "TCPIP::gw::gpib0,5,31", "TCPIP::gw::gpib0,5,2,1", "TCPIP::gw::gpibx,5",
                     "TCPIP::gw::inst0", "TCPIP::gw::hislip0", "TCPIP::gw::5025::SOCKET", "TCPIP::gw::usb0,5"] {
             assert_eq!(p(not).gpib(), None, "{not}");
