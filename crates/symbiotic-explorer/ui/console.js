@@ -6,7 +6,7 @@
 
 const LOG_LIMIT = 500, HISTORY_LIMIT = 200;
 const prefs = { timeout: Number(stored("console.timeout", "3000")) || 3000, ending: stored("console.ending", "lf") };
-const c = { log: [], history: [], back: -1, busy: false, target: null, used: null, connected: false };
+const c = { log: [], history: [], back: -1, busy: false, target: null, used: null, connected: false, serial: null };
 let init = null; // {resource, members: [{resource, online, proto}], via}
 let ui = null;   // the elements of the page
 
@@ -39,7 +39,7 @@ function renderLog() {
 
 function setBusy(b) {
   c.busy = b;
-  for (const x of ui.buttons) x.disabled = b;
+  for (const x of [...ui.buttons, ...ui.serialInputs]) x.disabled = b;
   if (ui.via) ui.via.disabled = b;
   renderLog();
 }
@@ -74,6 +74,7 @@ async function run(op, text) {
   }
   showState();
   setBusy(false);
+  if (c.serial) await loadSerial(); // the first operation opened the port: show it as it is
   ui.cmd.focus();
 }
 
@@ -87,6 +88,74 @@ async function through(resource) {
   await invoke("close_session", { resource: before }).catch(() => {});
   if (c.used === before) c.used = null;
   logPush({ dir: "info", text: t("console.through", { name: resource }), time: clock() });
+  await loadSerial();
+}
+
+// ---- a serial port's line settings ----------------------------------------------------------------------
+// While the console has a session to the port, the port's settings as they are; before, what it opens at (it is not
+// opened to show them: that raises DTR). A change is made on the port if it is open, and kept as its default.
+
+const BAUDS = [300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
+const PARITY = ["none", "odd", "even", "mark", "space"];
+const STOP = [[10, "1"], [15, "1.5"], [20, "2"]];
+const FLOWS = [[0, "none"], [1, "xon"], [2, "rts"], [4, "dtr"]];
+
+async function loadSerial() {
+  try { c.serial = await invoke("serial_settings", { resource: target() }); } catch (e) { c.serial = null; }
+  renderSerial();
+}
+
+// "115200 8N1", with the flow control when there is one.
+function lineOf(x) {
+  const flow = FLOWS.filter(([b]) => b && x.flow & b).map(([, n]) => t("serial.flow." + n)).join(" + ");
+  return x.baud + " " + x.data_bits + "NOEMS"[x.parity] + (STOP.find(([v]) => v === x.stop_bits) || [0, "1"])[1] + (flow ? " · " + flow : "");
+}
+
+async function setSerial(change) {
+  const before = c.serial;
+  const settings = Object.assign({}, before.settings, change);
+  setBusy(true);
+  try {
+    c.serial = await invoke("set_serial_settings", { resource: target(), settings });
+    logPush({ dir: "info", text: t("console.serial.saved", { port: c.serial.port, line: lineOf(c.serial.settings) }), time: clock() });
+  } catch (e) {
+    logPush({ dir: "error", text: String(e), time: clock() });
+    try { c.serial = await invoke("serial_settings", { resource: target() }); } catch (_) {}
+  }
+  setBusy(false);
+  renderSerial();
+}
+
+function renderSerial() {
+  if (!ui) return;
+  ui.serialInputs = [];
+  const v = c.serial;
+  ui.serial.style.display = v ? "" : "none";
+  if (!v) { ui.serial.replaceChildren(); return; }
+  const x = v.settings;
+  const pick = (key, options, value, apply) => {
+    const sel = el("select", { "aria-label": t(key), disabled: c.busy, onchange: e => setSerial(apply(e.target.value)) });
+    for (const [val, label] of options) sel.append(new Option(label, String(val), false, val === value));
+    ui.serialInputs.push(sel);
+    return el("label", { class: "inline" }, el("span", { class: "k" }, t(key)), sel);
+  };
+  const baud = el("input", { type: "number", min: "1", step: "1", list: "console-bauds", value: String(x.baud), class: "narrow", "aria-label": t("console.serial.baud"), disabled: c.busy });
+  baud.addEventListener("change", () => {
+    const b = Math.round(Number(baud.value));
+    if (b >= 1 && b !== x.baud) setSerial({ baud: b }); else baud.value = String(x.baud);
+  });
+  ui.serialInputs.push(baud);
+  const flows = FLOWS.map(([b, n]) => [b, t("serial.flow." + n)]);
+  if (!FLOWS.some(([b]) => b === x.flow)) flows.push([x.flow, lineOf(Object.assign({}, x, { flow: x.flow })).split(" · ")[1]]);
+  ui.serial.replaceChildren(
+    el("label", { class: "inline" }, el("span", { class: "k" }, t("console.serial.baud")), baud,
+      el("datalist", { id: "console-bauds" }, ...BAUDS.map(b => el("option", { value: String(b) })))),
+    pick("console.serial.data_bits", [5, 6, 7, 8].map(d => [d, String(d)]), x.data_bits, d => ({ data_bits: Number(d) })),
+    pick("console.serial.parity", PARITY.map((p, i) => [i, t("serial.parity." + p)]), x.parity, p => ({ parity: Number(p) })),
+    pick("console.serial.stop_bits", STOP, x.stop_bits, s => ({ stop_bits: Number(s) })),
+    pick("console.serial.flow", flows, x.flow, f => ({ flow: Number(f) })),
+    el("span", { class: "spacer" }),
+    el("span", { class: "hint", title: t("console.serial.hint") }, t(v.live ? "console.serial.now" : "console.serial.opens", { port: v.port })));
 }
 
 // The status bar's left: whether the console holds a session to the instrument (from its first operation until another
@@ -147,7 +216,8 @@ function build() {
   const clear = el("button", { type: "button", onclick: () => { c.log = []; renderLog(); } }, t("action.clear_log"));
   const log = el("div", { class: "log mono", role: "log", "aria-live": "polite" });
 
-  ui = { cmd, log, clear, via, buttons };
+  const serial = el("div", { class: "row", style: "display: none" });
+  ui = { cmd, log, clear, via, buttons, serial, serialInputs: [] };
   // `replaceChildren` would write a null as the word "null" (the page's own `el` leaves it out): no null in the list.
   document.getElementById("console").replaceChildren(...[
     el("div", { class: "row" }, cmd,
@@ -159,7 +229,9 @@ function build() {
       el("span", { class: "spacer" }),
       el("label", { class: "inline" }, el("span", { class: "k" }, t("console.timeout")), timeout),
       el("label", { class: "inline" }, el("span", { class: "k" }, t("console.ending")), ending)),
+    serial,
     log].filter(x => x !== null));
+  renderSerial();
   renderLog();
   showState();
   // The bar itself says "Console"; the system's title (the taskbar, Alt+Tab) names the instrument too.
@@ -197,6 +269,7 @@ async function main() {
   init = await invoke("console_init");
   c.target = init.via;
   build();
+  await loadSerial();
   ui.cmd.focus();
   ui.cmd.select();
 

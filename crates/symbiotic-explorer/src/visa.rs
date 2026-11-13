@@ -3,7 +3,7 @@
 
 use std::ffi::{c_char, CStr, CString};
 
-use visa64::{viClear, viClose, viFindNext, viFindRsrc, viOpen, viOpenDefaultRM, viRead, viReadSTB, viSetAttribute, viStatusDesc};
+use visa64::{viClear, viClose, viFindNext, viFindRsrc, viGetAttribute, viOpen, viOpenDefaultRM, viRead, viReadSTB, viSetAttribute, viStatusDesc};
 
 const VI_ATTR_TMO_VALUE: u32 = 0x3FFF_001A;
 const VI_ATTR_TERMCHAR: u32 = 0x3FFF_0018;
@@ -118,6 +118,25 @@ impl Session {
         // SAFETY: a u16 to fill.
         check(unsafe { viReadSTB(self.0, &mut stb) })?;
         Ok(stb)
+    }
+
+    pub fn get_u32(&self, attr: u32) -> Result<u32, String> {
+        let mut v = 0u32;
+        // SAFETY: a u32 for a 32-bit attribute.
+        check(unsafe { viGetAttribute(self.0, attr, &mut v as *mut u32 as *mut _) })?;
+        Ok(v)
+    }
+
+    pub fn get_u16(&self, attr: u32) -> Result<u16, String> {
+        let mut v = 0u16;
+        // SAFETY: a u16 for a 16-bit attribute.
+        check(unsafe { viGetAttribute(self.0, attr, &mut v as *mut u16 as *mut _) })?;
+        Ok(v)
+    }
+
+    pub fn set(&self, attr: u32, value: u32) -> Result<(), String> {
+        // SAFETY: a session this program opened.
+        check(unsafe { viSetAttribute(self.0, attr, value as _) }).map(|_| ())
     }
 
     pub fn clear(&self) -> Result<(), String> {

@@ -16,6 +16,8 @@
 //!     symbiotic-ctl [--board N] forget                      (an adapter not attached: no longer listed, its number free)
 //!     symbiotic-ctl usb                                     (the USBTMC instruments, and which are ours)
 //!     symbiotic-ctl serial                                  (the serial ports, as ASRL resources)
+//!     symbiotic-ctl serial set PORT [baud=N] [data=5..8] [parity=none|odd|even|mark|space] [stop=1|1.5|2] [flow=none|xon|rts|dtr]
+//!     symbiotic-ctl serial reset PORT                       (a port's default settings, serial.conf; PORT: COMn, or /dev/tty...)
 //!     symbiotic-ctl alias [list | add NAME RESOURCE | remove NAME | bind NAME | unbind NAME]   (aliases for resource names)
 //!     symbiotic-ctl bridge [list | add PORT [prologix|ar488] | remove PORT]   (PORT: COMn, or /dev/tty... on Linux)
 //!                                                           (serial ports that are Prologix/AR488 GPIB boards)
@@ -116,7 +118,7 @@ fn main() {
         return;
     }
     if cmd == "serial" {
-        serial();
+        serial(&args[1..]);
         return;
     }
     if cmd == "bridge" {
@@ -220,18 +222,53 @@ fn usb() {
 
 /// The serial ports, from the registry (on Linux, sysfs): nothing is opened, so this says nothing about what is on
 /// them, or whether another program has one.
-fn serial() {
+fn serial(args: &[String]) {
+    use symbiotic_core::serialconf;
+    // The port as serial.conf names it: the canonical name of the port the argument means.
+    let port = |a: Option<&String>| {
+        let a = a.unwrap_or_else(|| usage());
+        let n = symbiotic_core::serial::port_number(a)
+            .unwrap_or_else(|| fail(1, &format!("{a:?} is not COM<n> (or on Linux a tty such as /dev/ttyACM0)")));
+        symbiotic_core::serial::port_name(n)
+    };
+    let saved = |name: &str, c: &symbiotic_core::serial::Config| {
+        serialconf::remember(name, c).unwrap_or_else(|e| fail(4, &format!("serial.conf: {e}")));
+        let shown = if *c == Default::default() { "9600 8N1 (VISA's defaults)".to_string() } else { serialconf::line(c) };
+        println!("{name}: {shown}; the next time the port is opened (a port open now keeps what it has)");
+    };
+    match args.first().map(String::as_str) {
+        None | Some("list") => {}
+        Some("set") => {
+            let name = port(args.get(1));
+            let mut c = serialconf::default_in(&serialconf::load(), &name);
+            if args.len() < 3 {
+                usage();
+            }
+            for kv in &args[2..] {
+                let ok = kv.split_once('=').is_some_and(|(k, v)| serialconf::apply(&mut c, k, v));
+                if !ok {
+                    fail(1, &format!("{kv:?}: not baud=N, data=5..8, parity=none|odd|even|mark|space, stop=1|1.5|2 or flow=none|xon|rts|dtr (joined by +)"));
+                }
+            }
+            return saved(&name, &c);
+        }
+        Some("reset") => return saved(&port(args.get(1)), &Default::default()),
+        Some(_) => usage(),
+    }
     let l = symbiotic_core::serial::list().unwrap_or_else(|e| fail(4, &e.to_string()));
     if l.is_empty() {
         println!("no serial ports");
     }
     let bridges = symbiotic_core::prologix::configured();
+    let defaults = serialconf::load();
     for f in l {
+        let name = symbiotic_core::serial::port_name(f.n);
         if bridges.iter().any(|(b, _)| *b == f.n) {
-            let (port, asrl) = (symbiotic_core::serial::port_name(f.n), symbiotic_core::resource::format_asrl(f.n));
-            println!("{port}  ({}; a Prologix/AR488 bridge, so a GPIB board, not {asrl})", f.device);
+            println!("{name}  ({}; a Prologix/AR488 bridge, so a GPIB board, not {})", f.device, symbiotic_core::resource::format_asrl(f.n));
         } else {
-            println!("{}  ({}, {})", symbiotic_core::resource::format_asrl(f.n), symbiotic_core::serial::port_name(f.n), f.device);
+            let c = serialconf::default_in(&defaults, &name);
+            let opens = if c == Default::default() { String::new() } else { format!("; opens at {}", serialconf::line(&c)) };
+            println!("{}  ({name}, {}{opens})", symbiotic_core::resource::format_asrl(f.n), f.device);
         }
     }
 }

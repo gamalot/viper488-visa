@@ -800,7 +800,9 @@ fn handle_asrl(st: &State, q: Req, me: crate::locks::Owner) -> Resp {
     if crate::prologix::is_bridge(n) {
         return Resp::err(&Error::NoBoard, 0);
     }
-    let slot = st.serial.held().entry(n).or_default().clone();
+    // A port nobody has open starts at its default settings (serialconf.rs); one that is open, or
+    // was unplugged while in use, keeps what it has.
+    let slot = st.serial.held().entry(n).or_insert_with(|| Arc::new(Mutex::new(SerialSlot { cfg: crate::serialconf::default_for(n), ..Default::default() }))).clone();
     let mut s = slot.held();
     s.users.insert(me);
     if s.port.is_none() {

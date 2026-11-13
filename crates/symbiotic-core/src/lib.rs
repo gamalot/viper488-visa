@@ -36,6 +36,7 @@ pub mod proto;
 pub mod renconf;
 pub mod resource;
 pub mod serial;
+pub mod serialconf;
 pub mod server;
 pub mod share;
 pub mod speedconf;

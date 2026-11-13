@@ -126,8 +126,10 @@ the tty (`dialout` on most distributions). On macOS a port is given a number the
 
 Ports are opened by the daemon for the sessions that use them, so several processes share one serial
 instrument, and closed when the last of those sessions closes. Listing opens no port. The port's settings
-(baud rate, framing, flow control, DTR/RTS) are the port's and every session sees the same; how a read or
-write ends (`VI_ATTR_ASRL_END_IN`/`END_OUT`) is each session's. With `VI_ATTR_IO_PROT` set to
+(baud rate, framing, flow control, DTR/RTS) are the port's and every session sees the same. A port opens at
+9600 8N1 unless it has been given other defaults, in Symbiotic Explorer's console (a row of baud rate, data bits,
+parity, stop bits and flow control) or with `symbiotic-ctl serial set`; what a program sets through VISA lasts
+while the port is open. How a read or write ends (`VI_ATTR_ASRL_END_IN`/`END_OUT`) is each session's. With `VI_ATTR_IO_PROT` set to
 `VI_PROT_4882_STRS`, `viReadSTB`, `viAssertTrigger` and `viClear` send `*STB?`, `*TRG` and `*CLS`;
 otherwise `viClear` sends a break.
 
@@ -223,6 +225,7 @@ the daemon opens that adapter), the LAN instrument list, the bridges and the ali
     symbiotic-ctl lan scan                                   # find LAN instruments now
     symbiotic-ctl usb                                        # the USBTMC instruments, and which are ours
     symbiotic-ctl serial                                     # the serial ports (opens none)
+    symbiotic-ctl serial set COM3 baud=115200 [data= parity= stop= flow=]   # a port's default settings
     symbiotic-ctl bridge [list | add COMn [prologix|ar488] | remove COMn]   # Prologix/AR488 bridges
     symbiotic-ctl alias [list | add NAME RESOURCE | remove NAME | bind NAME | unbind NAME]   # aliases: viOpen("DMM")
     symbiotic-ctl stop                                       # ask the daemon to exit

@@ -367,6 +367,105 @@ async fn io(sessions: tauri::State<'_, Arc<Sessions>>, req: IoRequest) -> Result
     .await
 }
 
+// The serial settings the console offers: what serialconf.rs keeps, in VISA's numbering.
+const VI_ATTR_ASRL_BAUD: u32 = 0x3FFF_0021;
+const VI_ATTR_ASRL_DATA_BITS: u32 = 0x3FFF_0022;
+const VI_ATTR_ASRL_PARITY: u32 = 0x3FFF_0023;
+const VI_ATTR_ASRL_STOP_BITS: u32 = 0x3FFF_0024;
+const VI_ATTR_ASRL_FLOW_CNTRL: u32 = 0x3FFF_0025;
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+struct SerialSettings {
+    baud: u32,
+    data_bits: u8,
+    /// 0 none, 1 odd, 2 even, 3 mark, 4 space.
+    parity: u8,
+    /// 10 one, 15 one and a half, 20 two.
+    stop_bits: u8,
+    /// VI_ASRL_FLOW_* bits.
+    flow: u8,
+}
+
+#[derive(Serialize)]
+struct SerialView {
+    /// The port as serial.conf names it (`COM3`, `/dev/ttyUSB0`).
+    port: String,
+    settings: SerialSettings,
+    /// Read from the console's open session (the port as it is now), not from serial.conf.
+    live: bool,
+}
+
+fn serial_port_of(resource: &str) -> Option<u16> {
+    symbiotic_core::resource::parse_asrl(resource).map(|(n, _)| n)
+}
+
+fn view_of(c: &symbiotic_core::serial::Config) -> SerialSettings {
+    SerialSettings { baud: c.baud, data_bits: c.data_bits, parity: c.parity, stop_bits: c.stop_bits, flow: c.flow }
+}
+
+fn live_settings(s: &visa::Session) -> Result<SerialSettings, String> {
+    Ok(SerialSettings {
+        baud: s.get_u32(VI_ATTR_ASRL_BAUD)?,
+        data_bits: s.get_u16(VI_ATTR_ASRL_DATA_BITS)? as u8,
+        parity: s.get_u16(VI_ATTR_ASRL_PARITY)? as u8,
+        stop_bits: s.get_u16(VI_ATTR_ASRL_STOP_BITS)? as u8,
+        flow: s.get_u16(VI_ATTR_ASRL_FLOW_CNTRL)? as u8,
+    })
+}
+
+/// A serial resource's settings for the console (None: not a serial port): the port's as they are
+/// while the console has a session to it, else its defaults (serial.conf) -- the port is not opened
+/// to show them, which would raise DTR.
+#[tauri::command]
+async fn serial_settings(sessions: tauri::State<'_, Arc<Sessions>>, resource: String) -> Result<Option<SerialView>, String> {
+    let sessions = sessions.inner().clone();
+    blocking(move || {
+        let Some(n) = serial_port_of(&resource) else { return Ok(None) };
+        let port = symbiotic_core::serial::port_name(n);
+        let held = sessions.0.lock().unwrap().get(&resource).cloned();
+        if let Some(s) = held {
+            if let Ok(settings) = live_settings(&s) {
+                return Ok(Some(SerialView { port, settings, live: true }));
+            }
+        }
+        Ok(Some(SerialView { port, settings: view_of(&symbiotic_core::serialconf::default_for(n)), live: false }))
+    })
+    .await
+}
+
+/// Make `settings` the port's: on the port now if the console has a session to it (a setting the
+/// driver refuses is an error, and nothing is remembered), and its default from now on (serial.conf).
+#[tauri::command]
+async fn set_serial_settings(sessions: tauri::State<'_, Arc<Sessions>>, resource: String, settings: SerialSettings) -> Result<SerialView, String> {
+    use symbiotic_core::serial::{field, Config};
+    let sessions = sessions.inner().clone();
+    blocking(move || {
+        let n = serial_port_of(&resource).ok_or_else(|| format!("{resource} is not a serial port"))?;
+        let port = symbiotic_core::serial::port_name(n);
+        let x = settings;
+        let cfg = [(field::BAUD, x.baud), (field::DATA_BITS, x.data_bits.into()), (field::PARITY, x.parity.into()),
+                   (field::STOP_BITS, x.stop_bits.into()), (field::FLOW, x.flow.into())]
+            .into_iter()
+            .try_fold(Config::default(), |c, (f, v)| c.with(f, v))
+            .map_err(|_| "not a setting a serial port can have".to_string())?;
+        let held = sessions.0.lock().unwrap().get(&resource).cloned();
+        let live = held.is_some();
+        if let Some(s) = &held {
+            for (attr, v) in [(VI_ATTR_ASRL_BAUD, x.baud), (VI_ATTR_ASRL_DATA_BITS, x.data_bits.into()), (VI_ATTR_ASRL_PARITY, x.parity.into()),
+                              (VI_ATTR_ASRL_STOP_BITS, x.stop_bits.into()), (VI_ATTR_ASRL_FLOW_CNTRL, x.flow.into())] {
+                s.set(attr, v)?;
+            }
+        }
+        symbiotic_core::serialconf::remember(&port, &cfg).map_err(|e| format!("serial.conf: {e}"))?;
+        let settings = match &held {
+            Some(s) => live_settings(s).unwrap_or_else(|_| view_of(&cfg)),
+            None => view_of(&cfg),
+        };
+        Ok(SerialView { port, settings, live })
+    })
+    .await
+}
+
 /// Close the console's session to `resource` (releasing, say, a lock the instrument holds for it).
 #[tauri::command]
 fn close_session(sessions: tauri::State<'_, Arc<Sessions>>, resource: String) -> bool {
@@ -769,6 +868,8 @@ fn main() {
             gateway_scan,
             io,
             close_session,
+            serial_settings,
+            set_serial_settings,
             open_console,
             console_init,
             open_pictures,
