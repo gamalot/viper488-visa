@@ -681,6 +681,18 @@ fn handle(st: &State, q: Req, me: crate::locks::Owner) -> Resp {
         st.srq.deliver(Target::Gpib(q.board, pad, NO_SAD), stb);
     }
     drop(bus);
+    // An I/O failure reaches the library as VI_ERROR_IO and nothing more: its reason is said here,
+    // or a user's report has nothing to go on (a timeout, no listener and an operation the adapter
+    // does not offer are answers, not failures).
+    let failed = match resp.error() {
+        Some(e @ Error::Io(_)) => Some(e),
+        Some(e @ Error::Status(s)) if s != crate::proto::ST_UNSUPPORTED => Some(e),
+        _ => None,
+    };
+    if let Some(e) = failed {
+        let at = if q.sad == NO_SAD { format!("pad {}", q.pad) } else { format!("pad {} sad {}", q.pad, q.sad) };
+        log(&format!("board {} ({key}): op {} {at} failed: {e}", q.board, q.op));
+    }
     if matches!(resp.code, C_GONE | C_IO) {
         st.forget(&key);
     }
