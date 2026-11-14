@@ -54,6 +54,7 @@ const EOS_BIN: u8 = 0x10;
 const IBSTA_CIC: u16 = 0x0020;
 const IBSTA_ATN: u16 = 0x0010;
 const IBSTA_LACS: u16 = 0x0004;
+const IBSTA_TACS: u16 = 0x0008;
 
 const SUBDEV_TNT: u8 = 1;
 const REG_IMR1: u8 = 0x02;
@@ -317,6 +318,10 @@ struct Pipe {
     /// The status word of the adapter's last answer: whether the board is a listener decides how
     /// it takes control (`take_control`).
     ibsta: u16,
+    /// This adapter forgets the addressing it was just given when told to go to standby, so the
+    /// data blocks are sent straight after the addressing and release ATN themselves (`address`).
+    no_standby: bool,
+    serial: String,
 }
 
 /// The T1 registers for a level, as the kernel driver sets T1 for 2 us, 500 ns and 350 ns: AUXRI's USTD (1.1 us),
@@ -578,6 +583,11 @@ impl Pipe {
         self.address(pad, host_talks)
     }
 
+    /// Address `pad` to listen and the board to talk (`host_talks`), or the other way round, then
+    /// go to standby. Some units forget the board's own addressing at that standby (talker before,
+    /// not after, and the write refused with error 3). A data block releases ATN itself (ours does,
+    /// for writes and reads alike), so once that is seen the standby is left out for good on that
+    /// adapter.
     fn address(&mut self, pad: u8, host_talks: bool) -> Result<(), Error> {
         if self.addressed == Some((pad, host_talks)) {
             return Ok(());
@@ -588,7 +598,21 @@ impl Pipe {
         } else {
             self.commands(&[UNL, lag(0), tad(pad)])?;
         }
-        self.simple(BLK_STANDBY, 0)?;
+        if !self.no_standby {
+            let want = if host_talks { IBSTA_TACS } else { IBSTA_LACS };
+            let before = self.ibsta;
+            self.simple(BLK_STANDBY, 0)?;
+            if before & want != 0 && self.ibsta & want == 0 {
+                // Addressed before the standby, not after: say so once, address again and leave
+                // ATN to the data block.
+                self.no_standby = true;
+                crate::server::log(&format!(
+                    "NI {}: the adapter loses its addressing at standby (status {before:#06x} -> {:#06x}); data transfers now release ATN themselves",
+                    self.serial, self.ibsta
+                ));
+                return self.address(pad, host_talks);
+            }
+        }
         self.addressed = Some((pad, host_talks));
         Ok(())
     }
@@ -708,6 +732,8 @@ impl NiAdapter {
             owed: Owed::default(),
             speed: SPEED_NORMAL,
             ibsta: 0,
+            no_standby: false,
+            serial: serial.to_string(),
         };
         let _ = pipe.ep_in.clear_halt().wait();
         let _ = pipe.ep_out.clear_halt().wait();
