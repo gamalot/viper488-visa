@@ -24,6 +24,33 @@ pub fn u16_ms(tmo_ms: u32) -> u16 {
     if tmo_ms == TMO_INFINITE { u16::MAX } else { tmo_ms.min(u16::MAX as u32 - 1) as u16 }
 }
 
+thread_local! {
+    static CALLER: std::cell::RefCell<Option<Box<dyn Fn() -> bool>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Whether the client this thread serves has gone. A backend whose read waits in steps looks between
+/// them, so a killed program does not keep the adapter until its timeout runs out. False where
+/// nobody set a watch.
+pub fn caller_gone() -> bool {
+    CALLER.with(|c| c.borrow().as_ref().is_some_and(|f| f()))
+}
+
+/// Tells `caller_gone` on this thread how to see the client go, until dropped.
+pub struct CallerWatch(());
+
+impl CallerWatch {
+    pub fn new(gone: impl Fn() -> bool + 'static) -> CallerWatch {
+        CALLER.with(|c| *c.borrow_mut() = Some(Box::new(gone)));
+        CallerWatch(())
+    }
+}
+
+impl Drop for CallerWatch {
+    fn drop(&mut self) {
+        CALLER.with(|c| *c.borrow_mut() = None);
+    }
+}
+
 /// What a protocol of u16 milliseconds means as a request's timeout: the inverse of `u16_ms`.
 pub fn from_u16_ms(ms: u16) -> u32 {
     if ms == u16::MAX { TMO_INFINITE } else { ms as u32 }

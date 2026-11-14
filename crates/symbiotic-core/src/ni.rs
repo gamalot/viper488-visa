@@ -179,6 +179,10 @@ const LADDER: &[(u64, u8, u64)] = &[
 /// The longest rung a read uses.
 const READ_RUNGS: usize = 15;
 
+/// The longest one data-read block waits, whatever the caller's timeout (the 1 s rung, as it really
+/// waits): between blocks the read looks whether its caller is still there (`read_message`).
+const READ_BLOCK_WAIT: Duration = Duration::from_micros(1_048_576);
+
 /// The rung that waits at least `d` (the longest if none does): a write or a serial poll, which
 /// cannot be taken up again where it stopped, may wait longer but does not give up early.
 fn timeout_code(d: Duration) -> u8 {
@@ -821,8 +825,10 @@ impl BusOps for NiBus<'_> {
         let (mut out, _) = p.owed.take(pad); // never owes past EOI: reads stop at it
         // The timeout covers the whole read. Each operation gets the longest rung of the adapter's ladder that fits in
         // what is left, and when the adapter's wait runs out the next asks again for the rest, so the read ends near
-        // the caller's timeout. Between operations is where the read is over. A write still rounds up: half a message
-        // cannot be taken back, so it may wait longer but never gives up early.
+        // the caller's timeout. Between operations is where the read is over. No operation waits more than about a
+        // second (`READ_BLOCK_WAIT`), so a read whose client has gone ends there instead of holding the adapter for the
+        // rest of a long timeout. A write still rounds up: half a message cannot be taken back, so it may wait longer
+        // but never gives up early.
         let deadline = std::time::Instant::now() + timeout_of(tmo_ms);
         let mut first = true;
         loop {
@@ -838,13 +844,22 @@ impl BusOps for NiBus<'_> {
             p.to_data(pad, false)?;
             let max = if p.no_standby { READ_BLOCK_MAX_ODD } else { READ_BLOCK_MAX };
             let want = (count - out.len()).min(max) as u16;
-            let (data, ibsta, err) = p.read_bytes(want, rung_within(left), term)?;
+            let (data, ibsta, err) = p.read_bytes(want, rung_within(left.min(READ_BLOCK_WAIT)), term)?;
             let n = data.len();
             out.extend_from_slice(&data);
             match err {
                 0 => {}
                 // The adapter's wait ran out: the loop asks again for what is left of the caller's, or
-                // ends the read as timed out, keeping what came.
+                // ends the read as timed out, keeping what came. Nobody to read for: stop, as a
+                // timeout (an I/O error would have the adapter dropped and opened again).
+                10 if crate::backend::caller_gone() => {
+                    crate::server::log(&format!(
+                        "NI {}: read from pad {pad} given up after {} bytes: the client has gone",
+                        p.serial,
+                        out.len()
+                    ));
+                    return Err(Error::Timeout);
+                }
                 10 => continue,
                 e => return Err(device_error(e)),
             }

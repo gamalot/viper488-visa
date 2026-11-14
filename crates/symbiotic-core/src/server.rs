@@ -1053,6 +1053,10 @@ fn serve(st: Arc<State>, mut s: local::Stream, listener: Arc<Listener>) {
         st.hangup.held().insert(me, c);
     }
     let mut gone = Gone { st: &st, me, mine: Vec::new() };
+    let _watch = {
+        let st = st.clone();
+        crate::backend::CallerWatch::new(move || st.hangup.held().get(&me).is_some_and(local::hung_up))
+    };
     while let Ok(q) = Req::read_from(&mut s) {
         if q.op == op::PEER_CONNECT {
             // The rest of this connection belongs to the owner of the alias.
