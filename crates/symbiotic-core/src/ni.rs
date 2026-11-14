@@ -507,7 +507,7 @@ impl Pipe {
     /// Assert ATN, as linux-gpib's ibcac does: synchronously only while the board is a listener (a
     /// synchronous take-control completes at the end of a byte the board accepts, so it cannot work
     /// otherwise), else asynchronously; a synchronous one that leaves ATN released is tried again
-    /// asynchronously. The genuine adapter asserts ATN either way; some units do not after a
+    /// asynchronously. Our adapter asserts ATN either way; some units do not after a
     /// synchronous request when not listening, and the interface messages that followed went out
     /// as data bytes (UNL, LAG, TAD received by the instruments as text). ATN still released after
     /// both is an error, never a command sent without it.
