@@ -60,6 +60,8 @@ const REG_IMR1: u8 = 0x02;
 const REG_IMR2: u8 = 0x04;
 const REG_AUXCR: u8 = 0x06;
 const REG_ADMR: u8 = 0x08;
+/// Read at ADMR's offset: the address status (NEC7210 ADSR).
+const REG_ADSR: u8 = 0x08;
 const REG_AUXMR: u8 = 0x0a;
 const REG_ADR: u8 = 0x0c;
 const REG_HSSEL: u8 = 0x0d;
@@ -129,9 +131,13 @@ const INIT: &[(u8, u8, u8)] = &[
 
 const USB_TIMEOUT: Duration = Duration::from_secs(20);
 
-fn trace(msg: impl FnOnce() -> String) {
+fn tracing() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *ON.get_or_init(|| std::env::var_os("SYMBIOTIC_NI_TRACE").is_some()) {
+    *ON.get_or_init(|| std::env::var_os("SYMBIOTIC_NI_TRACE").is_some())
+}
+
+fn trace(msg: impl FnOnce() -> String) {
+    if tracing() {
         crate::server::log(&format!("[ni] {}", msg()));
     }
 }
@@ -450,7 +456,11 @@ impl Pipe {
         let r = self.exchange(out, wait)?;
         let s = status(&r)?;
         self.ibsta = s.ibsta;
-        trace(|| format!("op {:#04x} ibsta {:#06x} error {} left {}", out.first().copied().unwrap_or(0), s.ibsta, s.error, s.left));
+        let id = out.first().copied().unwrap_or(0);
+        trace(|| format!("op {id:#04x} ibsta {:#06x} error {} left {}", s.ibsta, s.error, s.left));
+        if tracing() && matches!(id, BLK_TAKE_CONTROL | BLK_COMMAND | BLK_STANDBY | BLK_DATA_WRITE) {
+            self.trace_lines();
+        }
         if s.error != 0 {
             return Err(device_error(s.error));
         }
@@ -464,6 +474,29 @@ impl Pipe {
         }
         terminate(&mut v);
         self.op(&v, USB_TIMEOUT)
+    }
+
+    /// For the trace: the chip's own view of addressing and the bus, which the status word's ATN
+    /// bit is not on every unit.
+    fn trace_lines(&mut self) {
+        match self.read_registers(&[REG_ADSR, REG_BSR]) {
+            Ok(r) if r.len() == 2 => {
+                let a = r[0];
+                let on = |bit: u8, name: &'static str| if a & bit != 0 { name } else { "" };
+                trace(|| {
+                    format!(
+                        "  adsr {a:#04x} [{} {} {} {}] bsr {:#04x}",
+                        on(0x80, "CIC"),
+                        if a & 0x40 == 0 { "ATN" } else { "atn-released" },
+                        on(0x02, "TA"),
+                        on(0x04, "LA"),
+                        r[1]
+                    )
+                });
+            }
+            Ok(r) => trace(|| format!("  adsr read gave {} byte(s)", r.len())),
+            Err(e) => trace(|| format!("  adsr read failed: {e}")),
+        }
     }
 
     fn read_registers(&mut self, offsets: &[u8]) -> Result<Vec<u8>, Error> {
@@ -506,20 +539,20 @@ impl Pipe {
 
     /// Assert ATN, as linux-gpib's ibcac does: synchronously only while the board is a listener (a
     /// synchronous take-control completes at the end of a byte the board accepts, so it cannot work
-    /// otherwise), else asynchronously; a synchronous one that leaves ATN released is tried again
-    /// asynchronously. Our adapter asserts ATN either way; some units do not after a
-    /// synchronous request when not listening, and the interface messages that followed went out
-    /// as data bytes (UNL, LAG, TAD received by the instruments as text). ATN still released after
-    /// both is an error, never a command sent without it.
+    /// otherwise), else asynchronously; a synchronous one that leaves ATN out of the status is tried
+    /// again asynchronously. The status word's ATN bit is not to be trusted: some units never report
+    /// it after a take-control, yet the commands that follow address the bus (the board's own TAD
+    /// makes it talker). So its absence is only traced; whether addressing worked shows in the
+    /// operation that follows.
     fn take_control(&mut self) -> Result<Status, Error> {
         let sync = self.ibsta & IBSTA_LACS != 0;
         let mut s = self.simple(BLK_TAKE_CONTROL, sync as u8)?;
         if sync && s.ibsta & IBSTA_ATN == 0 {
-            trace(|| format!("synchronous take-control left ATN released (ibsta {:#06x}): asynchronous", s.ibsta));
+            trace(|| format!("synchronous take-control left ATN out of the status (ibsta {:#06x}): asynchronous", s.ibsta));
             s = self.simple(BLK_TAKE_CONTROL, 0)?;
         }
         if s.ibsta & IBSTA_ATN == 0 {
-            return Err(io(format!("the adapter did not assert ATN to take control (status {:#06x})", s.ibsta)));
+            trace(|| format!("take-control status has no ATN bit (ibsta {:#06x}); going on", s.ibsta));
         }
         Ok(s)
     }
