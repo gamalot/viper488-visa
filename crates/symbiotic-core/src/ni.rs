@@ -55,6 +55,11 @@ const IBSTA_CIC: u16 = 0x0020;
 const IBSTA_ATN: u16 = 0x0010;
 const IBSTA_LACS: u16 = 0x0004;
 const IBSTA_TACS: u16 = 0x0008;
+/// The most a data-read block asks for: the count is 16 bits.
+const READ_BLOCK_MAX: usize = 0xffff;
+/// The most a data-read block asks for on an adapter that loses its addressing at standby: such a
+/// unit does not answer a block that moves much more than this.
+const READ_BLOCK_MAX_ODD: usize = 4096;
 
 const SUBDEV_TNT: u8 = 1;
 const REG_IMR1: u8 = 0x02;
@@ -320,6 +325,7 @@ struct Pipe {
     ibsta: u16,
     /// This adapter forgets the addressing it was just given when told to go to standby, so the
     /// data blocks are sent straight after the addressing and release ATN themselves (`address`).
+    /// It also never answers a data-read block that moves more than `READ_BLOCK_MAX_ODD` bytes.
     no_standby: bool,
     serial: String,
 }
@@ -830,7 +836,8 @@ impl BusOps for NiBus<'_> {
             }
             first = false;
             p.to_data(pad, false)?;
-            let want = (count - out.len()).min(0xffff) as u16;
+            let max = if p.no_standby { READ_BLOCK_MAX_ODD } else { READ_BLOCK_MAX };
+            let want = (count - out.len()).min(max) as u16;
             let (data, ibsta, err) = p.read_bytes(want, rung_within(left), term)?;
             let n = data.len();
             out.extend_from_slice(&data);
