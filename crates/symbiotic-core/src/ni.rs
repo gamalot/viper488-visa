@@ -52,6 +52,8 @@ const IBSTA_END: u16 = 0x2000;
 const EOS_REOS: u8 = 0x04;
 const EOS_BIN: u8 = 0x10;
 const IBSTA_CIC: u16 = 0x0020;
+const IBSTA_ATN: u16 = 0x0010;
+const IBSTA_LACS: u16 = 0x0004;
 
 const SUBDEV_TNT: u8 = 1;
 const REG_IMR1: u8 = 0x02;
@@ -306,6 +308,9 @@ struct Pipe {
     owed: Owed,
     /// The T1 level in force (SPEED_*): normal after bring-up.
     speed: u8,
+    /// The status word of the adapter's last answer: whether the board is a listener decides how
+    /// it takes control (`take_control`).
+    ibsta: u16,
 }
 
 /// The T1 registers for a level, as the kernel driver sets T1 for 2 us, 500 ns and 350 ns: AUXRI's USTD (1.1 us),
@@ -444,6 +449,7 @@ impl Pipe {
     fn op(&mut self, out: &[u8], wait: Duration) -> Result<Status, Error> {
         let r = self.exchange(out, wait)?;
         let s = status(&r)?;
+        self.ibsta = s.ibsta;
         trace(|| format!("op {:#04x} ibsta {:#06x} error {} left {}", out.first().copied().unwrap_or(0), s.ibsta, s.error, s.left));
         if s.error != 0 {
             return Err(device_error(s.error));
@@ -487,7 +493,7 @@ impl Pipe {
         if bytes.is_empty() {
             return Ok(());
         }
-        self.simple(BLK_TAKE_CONTROL, 1)?;
+        self.take_control()?;
         for part in bytes.chunks(16) {
             let code = timeout_code(wait);
             let mut v = vec![BLK_COMMAND, !(part.len() as u8 - 1), 0x00, code];
@@ -498,10 +504,30 @@ impl Pipe {
         Ok(())
     }
 
+    /// Assert ATN, as linux-gpib's ibcac does: synchronously only while the board is a listener (a
+    /// synchronous take-control completes at the end of a byte the board accepts, so it cannot work
+    /// otherwise), else asynchronously; a synchronous one that leaves ATN released is tried again
+    /// asynchronously. The genuine adapter asserts ATN either way; some units do not after a
+    /// synchronous request when not listening, and the interface messages that followed went out
+    /// as data bytes (UNL, LAG, TAD received by the instruments as text). ATN still released after
+    /// both is an error, never a command sent without it.
+    fn take_control(&mut self) -> Result<Status, Error> {
+        let sync = self.ibsta & IBSTA_LACS != 0;
+        let mut s = self.simple(BLK_TAKE_CONTROL, sync as u8)?;
+        if sync && s.ibsta & IBSTA_ATN == 0 {
+            trace(|| format!("synchronous take-control left ATN released (ibsta {:#06x}): asynchronous", s.ibsta));
+            s = self.simple(BLK_TAKE_CONTROL, 0)?;
+        }
+        if s.ibsta & IBSTA_ATN == 0 {
+            return Err(io(format!("the adapter did not assert ATN to take control (status {:#06x})", s.ibsta)));
+        }
+        Ok(s)
+    }
+
     /// IFC, then become controller-in-charge.
     fn take_bus(&mut self) -> Result<(), Error> {
         self.simple(BLK_IFC, 0)?;
-        let s = self.simple(BLK_TAKE_CONTROL, 1)?;
+        let s = self.take_control()?;
         if s.ibsta & IBSTA_CIC == 0 {
             return Err(io("the adapter did not become controller-in-charge"));
         }
@@ -563,6 +589,7 @@ impl Pipe {
             i += h + n;
         }
         let s = status(&r[end..])?;
+        self.ibsta = s.ibsta;
         trace(|| format!("read want {max} ibsta {:#06x} error {} left {} data {}", s.ibsta, s.error, s.left, data.len()));
         data.truncate(max.saturating_sub(s.left) as usize);
         Ok((data, s.ibsta, s.error))
@@ -647,6 +674,7 @@ impl NiAdapter {
             addressed: None,
             owed: Owed::default(),
             speed: SPEED_NORMAL,
+            ibsta: 0,
         };
         let _ = pipe.ep_in.clear_halt().wait();
         let _ = pipe.ep_out.clear_halt().wait();
