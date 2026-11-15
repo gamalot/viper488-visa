@@ -474,7 +474,11 @@ section.box.fill > .pad { flex: 1 0 auto; }
 .trace-table td { padding: 3px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: baseline; }
 .trace-table .num { text-align: right; }
 .trace-table td.time { color: var(--faint); }
-.trace-table td.data { white-space: pre; max-width: 64ch; overflow: hidden; text-overflow: ellipsis; }
+/* The data takes what the other columns leave (width 100% with max-width 0 is how an auto-layout table gives one column
+   the rest), cut with an ellipsis; a long resource name (a USB one) is cut too, its whole in the title. So at the
+   window's own size every column is in view, and a wider window shows more of the data. */
+.trace-table td.data { white-space: pre; width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.trace-table td.resource { max-width: 24ch; overflow: hidden; text-overflow: ellipsis; }
 .trace-table tr.nested td { color: var(--muted); }
 .trace-table tr.error td { color: var(--warn); }
 .trace-table .trace-empty { padding: 14px 12px; }

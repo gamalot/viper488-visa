@@ -49,7 +49,7 @@ function rowEl(r) {
     el("td", { class: "mono time" }, timeOf(r)),
     el("td", { title: p.path }, `${p.name} `, el("span", { class: "muted" }, String(r.pid))),
     el("td", { class: "mono", style: `padding-left: ${(r.depth - 1) * 16 + 8}px` }, r.op),
-    el("td", { class: "mono", title: r.vi ? `vi ${r.vi}` : null }, r.resource),
+    el("td", { class: "mono resource", title: [r.resource, r.vi ? `vi ${r.vi}` : ""].filter(Boolean).join(" · ") || null }, r.resource),
     el("td", { class: "mono" }, statusOf(r)),
     el("td", { class: "mono num" }, msOf(r)),
     el("td", { class: "mono num" }, r.count === null || r.count === undefined ? "" : String(r.count)),

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # build_visa32.sh -- the 32-bit VISA library, visa32.dll, and its import library visa32.lib, from WSL.
 #   tools/build_visa32.sh          -> target/i686-pc-windows-msvc/release/visa32.dll, visa32.lib
+# (SYMBIOTIC_PROFILE=quick: Cargo.toml's [profile.quick] instead, into .../quick/; tools/build_msi.sh quick sets it.)
 #
 # The crate is the 64-bit one built for i686 (lib.rs picks ViAttrState's and ViBusAddress's width
 # by pointer width; fmtio.c marks its non-variadic functions __stdcall, as VPP-4.3's _VI_FUNC is on
@@ -16,8 +17,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
-REL=target/i686-pc-windows-msvc/release
-XWIN_ARCH=x86,x86_64,aarch64 RUSTFLAGS="${RUSTFLAGS:-}" cargo xwin build -q --release --target i686-pc-windows-msvc -p symbiotic-visa
+profile=${SYMBIOTIC_PROFILE:-release}
+REL=target/i686-pc-windows-msvc/$profile
+XWIN_ARCH=x86,x86_64,aarch64 RUSTFLAGS="${RUSTFLAGS:-}" cargo xwin build -q --profile "$profile" --target i686-pc-windows-msvc -p symbiotic-visa
 cp "$REL/visa64.dll" "$REL/visa32.dll"
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 {

@@ -79,11 +79,8 @@ else
 fi
 
 step "the MSI (wixl, for all users), with what it must hold and never the Keysight firmware"
-# The USBTMC package must lose every tie to a vendor driver: PnP takes the newer date.
-grep -qxF 'DriverVer   = 01/01/2000,$Version' windows/usbtmc-winusb.ps1 \
-    || { echo "windows/usbtmc-winusb.ps1: the INF's DriverVer is not 01/01/2000"; exit 1; }
 if command -v wixl >/dev/null && cargo xwin --version >/dev/null 2>&1 && command -v dotnet.exe >/dev/null; then
-    want="MicrosoftEdgeWebview2Setup.exe Symbiotic.Visa.deps.json Symbiotic.Visa.dll Symbiotic.Visa.dll Symbiotic.VisaCom.dll register-visa.ps1 register-visacom.ps1 register-visanet.ps1 symbiotic-ctl.exe symbiotic-explorer.exe symbiotic-quiet.exe symbioticd.exe usbtmc-winusb.ps1 visa.h visa32.dll visa32.lib visa64.dll visa64.lib visatype.h winusb-bind.ps1 winusb-unbind.ps1 "
+    want="MicrosoftEdgeWebview2Setup.exe Symbiotic.Visa.deps.json Symbiotic.Visa.dll Symbiotic.Visa.dll Symbiotic.VisaCom.dll register-visa.ps1 register-visacom.ps1 register-visanet.ps1 symbiotic-bind.exe symbiotic-ctl.exe symbiotic-explorer.exe symbiotic-quiet.exe symbioticd.exe usbtmc-winusb.ps1 visa.h visa32.dll visa32.lib visa64.dll visa64.lib visatype.h winusb-bind.ps1 winusb-unbind.ps1 "
     msi=$(tools/build_msi.sh | tail -1)
     files=$(msiinfo export "$msi" File | tail -n +4 | cut -f3 | sort | tr '\n' ' ')
     [ "$files" = "$want" ] || { echo "$msi holds: $files"; exit 1; }
@@ -101,16 +98,29 @@ if command -v wixl >/dev/null && cargo xwin --version >/dev/null 2>&1 && command
     # The registrations are there but off unless asked for (Level 1000).
     regs=$(msiinfo export "$msi" Feature | tail -n +4 | awk -F'\t' '$6 == 1000 { print $1 }' | sort | tr '\n' ' ')
     [ "$regs" = "RegisterVisa RegisterVisaCom RegisterVisaNet " ] || { echo "$msi's optional registrations: '$regs'"; exit 1; }
-    # USBTMC instruments without a driver onto WinUSB: on by default (Level 1), run when its feature is installed.
+    # Devices without a driver onto WinUSB: the service SymbioticBind, on by default (Level 1), as LocalSystem, started at
+    # boot; the USBTMC package of earlier versions taken away with its feature.
     msiinfo export "$msi" Feature | tail -n +4 | awk -F'\t' '$1 == "UsbtmcWinUsb" && $6 == 1' | grep -q . \
         || { echo "$msi has no UsbtmcWinUsb feature on by default"; exit 1; }
-    msiinfo export "$msi" InstallExecuteSequence | grep -P '^InstallUsbtmc\t&UsbtmcWinUsb=3\t' | grep -q . \
-        || { echo "$msi does not install the USBTMC package with its feature"; exit 1; }
+    msiinfo export "$msi" ServiceInstall | tail -n +4 | awk -F'\t' '$2 == "SymbioticBind" && $4 == 16 && $5 == 2 && $9 == "LocalSystem" && $12 == "BindService"' | grep -q . \
+        || { echo "$msi does not install the service SymbioticBind (own process, automatic, LocalSystem)"; exit 1; }
+    msiinfo export "$msi" FeatureComponents | grep -qP '^UsbtmcWinUsb\tBindService\r?$' || { echo "$msi's service is not UsbtmcWinUsb's"; exit 1; }
+    msiinfo export "$msi" InstallExecuteSequence | grep -P '^RemoveOldUsbtmc\t&UsbtmcWinUsb=3\t' | grep -q . \
+        || { echo "$msi does not take the old USBTMC package away with its feature"; exit 1; }
     # What runs the installed scripts on the way out, and stops the daemons, must come before RemoveFiles (3500) and
     # after InstallInitialize (1500).
     early=$(msiinfo export "$msi" InstallExecuteSequence | tail -n +4 \
-        | awk -F'\t' '$1 ~ /^(StopDaemons|StopDaemonsQuietly|UnregisterIvi|UnregisterNet|UnregisterCom|UninstallUsbtmc)$/ && ($3 <= 1500 || $3 >= 3500) { print $1 "=" $3 }')
+        | awk -F'\t' '$1 ~ /^(StopExplorer|StopExplorerQuietly|StopDaemons|StopDaemonsQuietly|UnregisterIvi|UnregisterNet|UnregisterCom|UninstallUsbtmc|ReleaseDevices)$/ && ($3 <= 1500 || $3 >= 3500) { print $1 "=" $3 }')
     [ -z "$early" ] || { echo "$msi runs these outside InstallInitialize..RemoveFiles: $early"; exit 1; }
+    # Symbiotic Explorer is ended before the daemons (open, it starts one again); the service's devices are given back when
+    # its feature goes, not on an upgrade; the registry backups of earlier versions go on uninstall (wixl writes no RemoveFile).
+    seq=$(msiinfo export "$msi" InstallExecuteSequence | tail -n +4)
+    [ "$(awk -F'\t' '$1 == "StopExplorer" { print $3 }' <<<"$seq")" -lt "$(awk -F'\t' '$1 == "StopDaemons" { print $3 }' <<<"$seq")" ] \
+        || { echo "$msi does not end Symbiotic Explorer before the daemons"; exit 1; }
+    grep -qP '^ReleaseDevices\t\(&UsbtmcWinUsb=2\) AND \(!UsbtmcWinUsb=3\) AND NOT UPGRADINGPRODUCTCODE\t' <<<"$seq" \
+        || { echo "$msi does not give the service's devices back when its feature goes"; exit 1; }
+    msiinfo export "$msi" RemoveFile | grep -qP '^RegBackupFiles\tScripts\t\*\.reg\tREGBACKUPDIR\t2\r?$' \
+        || { echo "$msi does not take earlier versions' registry backups away"; exit 1; }
     # The pages (tools/msi_ui.py): nothing is installed before the user clicks Install. A double-click opens
     # Welcome (or, installed, Change/Repair/Remove); the progress page is modeless, or the UI sequence waits on it
     # and never reaches ExecuteAction.

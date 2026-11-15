@@ -9,12 +9,12 @@
   router, VISA.NET and VISA COM are optional features, off by default (they bring every scanning program to the
   instruments: the user's decision):
       msiexec /i symbiotic-visa-<v>-windows-x64.msi ADDLOCAL=Runtime,UsbtmcWinUsb,RegisterVisa,RegisterVisaNet,RegisterVisaCom
-  and are taken back when their feature is removed or the product uninstalled. UsbtmcWinUsb, on by default, binds
-  every USBTMC instrument that has no driver to WinUSB (windows\usbtmc-winusb.ps1, as SYSTEM); one on a vendor's
-  driver stays there.
+  and are taken back when their feature is removed or the product uninstalled. UsbtmcWinUsb, on by default, is the
+  service SymbioticBind (symbiotic-bind.exe, as SYSTEM): USBTMC instruments and GPIB adapters that have no driver get
+  Windows' own WinUSB; one on a vendor's driver stays there.
 
   In it: the DLLs (visa64 and visa32), the daemon beside them (the DLL starts it from its own directory),
-  symbiotic-ctl, symbiotic-explorer (with a Start menu shortcut), the C headers and import libraries, the VISA.NET and VISA COM assemblies (dotnet\) and the
+  symbiotic-bind (the service above), symbiotic-ctl, symbiotic-explorer (with a Start menu shortcut), the C headers and import libraries, the VISA.NET and VISA COM assemblies (dotnet\) and the
   Windows scripts. The user's own files (lan.conf, aliases.conf, bridges.conf, speed.conf, firmware\) are not
   the MSI's and stay. The Keysight 82357B firmware image is not in it and must never be: it is Keysight's.
 
@@ -34,6 +34,14 @@
   <?define GuidDotnetFw = "9DB8E110-3E62-4FF8-BF20-42A4B8C2AB1B" ?>
   <?define GuidDotnetCore = "5D1357D8-4572-4E22-BD7F-159E7AB45F73" ?>
   <?define GuidScripts = "5CAF5D7A-9651-4936-AE2D-7D236AC9B2B9" ?>
+  <!-- Arch (build_msi.sh passes it): x64, or arm64 for Windows on Arm:
+       there the daemon and the programs are ARM64, visa64.dll is ARM64X (programs emulated as x64 and ARM64 ones load the
+       same file), and the registrations are not offered (no IVI shared components exist for it). -->
+  <?if $(var.Arch) = "arm64" ?>
+  <?define RegLevel = "0" ?>
+  <?else ?>
+  <?define RegLevel = "1000" ?>
+  <?endif ?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="$(var.ProductName)" Language="1033" Version="$(var.Version)"
            Manufacturer="Viper488" UpgradeCode="$(var.UpgradeCode)">
@@ -96,9 +104,14 @@
           <Component Id="RegCom" Guid="31343276-A36C-43DF-A90F-43465798747F" Win64="yes">
             <RegistryValue Root="HKLM" Key="$(var.Key)\Registered" Name="VisaCom" Type="integer" Value="1" KeyPath="yes" />
           </Component>
-          <!-- The same, for the USBTMC instruments' WinUSB package (usbtmc-winusb.ps1). -->
-          <Component Id="RegUsbtmc" Guid="0E6B3C1D-7A52-4F0E-9B6D-3C8E2A41F5D7" Win64="yes">
-            <RegistryValue Root="HKLM" Key="$(var.Key)\Registered" Name="UsbtmcWinUsb" Type="integer" Value="1" KeyPath="yes" />
+          <!-- The service that gives USB devices without a driver, ones Symbiotic uses, Windows' own WinUSB (symbiotic-bind.rs). It replaced the USBTMC
+               instruments' WinUSB package (usbtmc-winusb.ps1) in 0.1.307, under the same feature. -->
+          <Component Id="BindService" Guid="2F8AE9A0-C460-4699-AA7C-1BAB22D86CD0" Win64="yes">
+            <File Id="symbiotic_bind.exe" Source="$(var.Src)/symbiotic-bind.exe" KeyPath="yes" />
+            <ServiceInstall Id="BindService" Name="SymbioticBind" DisplayName="Symbiotic WinUSB binding"
+                            Description="Gives USB instruments and GPIB adapters that have no driver Windows' own WinUSB driver, for Viper488 Symbiotic VISA."
+                            Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Vital="yes" />
+            <ServiceControl Id="BindService" Name="SymbioticBind" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
           </Component>
           <Directory Id="IncludeDir" Name="include">
             <Component Id="Include" Guid="$(var.GuidInclude)" Win64="yes">
@@ -172,6 +185,10 @@
     <CustomAction Id="StopDaemon" Property="CTL" ExeCommand="stop" Return="ignore" />
     <CustomAction Id="StopDaemonQuietly" Property="OLDQUIET" ExeCommand="&quot;[INSTALLDIR]symbiotic-ctl.exe&quot; stop" Return="ignore" />
     <CustomAction Id="SetTaskkill" Property="TASKKILL" Value="[System64Folder]taskkill.exe" />
+    <!-- Symbiotic Explorer first: open, it starts a daemon again as soon as the daemons are ended, and runs on from deleted
+         files. -->
+    <CustomAction Id="StopExplorer" Property="TASKKILL" ExeCommand="/F /IM symbiotic-explorer.exe" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="StopExplorerQuietly" Property="OLDQUIET" ExeCommand="&quot;[System64Folder]taskkill.exe&quot; /F /IM symbiotic-explorer.exe" Execute="deferred" Impersonate="no" Return="ignore" />
     <CustomAction Id="StopDaemons" Property="TASKKILL" ExeCommand="/F /IM symbioticd.exe" Execute="deferred" Impersonate="no" Return="ignore" />
     <CustomAction Id="StopDaemonsQuietly" Property="OLDQUIET" ExeCommand="&quot;[System64Folder]taskkill.exe&quot; /F /IM symbioticd.exe" Execute="deferred" Impersonate="no" Return="ignore" />
     <!-- Every command from here on is this version's symbiotic-quiet running the program named first (quoted: it is
@@ -186,11 +203,20 @@
     <CustomAction Id="UnregisterNet" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visanet.ps1&quot; -Uninstall" Execute="deferred" Impersonate="no" Return="ignore" />
     <CustomAction Id="RegisterCom" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visacom.ps1&quot; -Dll &quot;[DotnetFwDir]Symbiotic.VisaCom.dll&quot;" Execute="deferred" Impersonate="no" Return="check" />
     <CustomAction Id="UnregisterCom" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]register-visacom.ps1&quot; -Uninstall -Dll &quot;[DotnetFwDir]Symbiotic.VisaCom.dll&quot;" Execute="deferred" Impersonate="no" Return="ignore" />
-    <!-- USBTMC instruments without a driver onto WinUSB: a class-matched package dated 2000, so that a vendor's USBTMC
-         driver always outranks it, signed by a certificate made on this machine whose key the script then deletes. It
-         replaces an older package of ours itself, so an upgrade does not take it away first (as with the registrations). -->
-    <CustomAction Id="InstallUsbtmc" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]usbtmc-winusb.ps1&quot; -Version [ProductVersion]" Execute="deferred" Impersonate="no" Return="check" />
+    <!-- The USBTMC package versions before 0.1.307 installed (a class-matched INF signed by a certificate made on this machine)
+         is taken away, with its certificate, whenever the service's feature is installed: an upgrade does not run the old
+         version's removal. Instruments that were on it are left with no driver, and the service binds them again. -->
+    <CustomAction Id="RemoveOldUsbtmc" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]usbtmc-winusb.ps1&quot; -Uninstall" Execute="deferred" Impersonate="no" Return="ignore" />
     <CustomAction Id="UninstallUsbtmc" Property="QUIET" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[ScriptsDir]usbtmc-winusb.ps1&quot; -Uninstall" Execute="deferred" Impersonate="no" Return="ignore" />
+    <!-- The service's devices given back when its feature goes (not on an upgrade): Windows' own winusb.inf has nothing to
+         take away as a package of ours had, and an instrument left on WinUSB would stay out of a vendor VISA's reach.
+         symbiotic-bind release stops the service first, gives each device node it bound back to the driver Windows chooses
+         (or forgets one not plugged in), and removes HKLM\SOFTWARE\Viper488\Symbiotic\WinUsb. -->
+    <CustomAction Id="ReleaseDevices" Property="QUIET" ExeCommand="&quot;[INSTALLDIR]symbiotic-bind.exe&quot; release" Execute="deferred" Impersonate="no" Return="ignore" />
+    <!-- Where register-visa.ps1 of versions before 0.1.311 kept its registry backups (windows\regbackup): taken away on
+         uninstall by RemoveFile rows build_msi.sh adds, since wixl writes no RemoveFile element. It keeps them under
+         %SystemRoot%\Logs\Symbiotic now. -->
+    <CustomAction Id="SetRegBackupDir" Property="REGBACKUPDIR" Value="[ScriptsDir]regbackup\" />
     <CustomAction Id="InstallWebView2" FileKey="webview2_setup.exe" ExeCommand="/silent /install" Execute="deferred" Impersonate="no" Return="ignore" />
     <InstallExecuteSequence>
       <!-- Numbered, as is RemoveExistingProducts below, so wixl does not sequence them itself. -->
@@ -200,6 +226,7 @@
       <Custom Action="SetTaskkill" Sequence="1001" />
       <!-- After CostFinalize (1000), which gives INSTALLDIR and ScriptsDir their values. -->
       <Custom Action="SetQuiet" Sequence="1002" />
+      <Custom Action="SetRegBackupDir" Sequence="1003" />
       <Custom Action="SetCtlPath" Sequence="1004" />
       <Custom Action="StopDaemon" Sequence="1005">NOT OLDQUIET</Custom>
       <Custom Action="StopDaemonQuietly" Sequence="1006">OLDQUIET</Custom>
@@ -207,21 +234,24 @@
       <RemoveExistingProducts Sequence="1401" />
       <!-- Numbered too, between InstallInitialize (1500) and RemoveFiles (3500), so an uninstall runs them while the
            scripts and symbiotic-quiet are still there; tools/check.sh holds them there. -->
-      <Custom Action="StopDaemons" Sequence="1501">NOT OLDQUIET</Custom>
-      <Custom Action="StopDaemonsQuietly" Sequence="1502">OLDQUIET</Custom>
+      <Custom Action="StopExplorer" Sequence="1501">NOT OLDQUIET</Custom>
+      <Custom Action="StopExplorerQuietly" Sequence="1502">OLDQUIET</Custom>
+      <Custom Action="StopDaemons" Sequence="1503">NOT OLDQUIET</Custom>
+      <Custom Action="StopDaemonsQuietly" Sequence="1504">OLDQUIET</Custom>
       <!-- Taken back while the scripts and files are still there: before RemoveFiles. Not when an upgrade
            removes this version: the new one registers again, and unregistering in between would take the
            user's choices out of the router's conflict table. -->
-      <Custom Action="UnregisterIvi" Sequence="1503">(&amp;RegisterVisa=2) AND (!RegisterVisa=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
-      <Custom Action="UnregisterNet" Sequence="1504">(&amp;RegisterVisaNet=2) AND (!RegisterVisaNet=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
-      <Custom Action="UnregisterCom" Sequence="1505">(&amp;RegisterVisaCom=2) AND (!RegisterVisaCom=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
-      <Custom Action="UninstallUsbtmc" Sequence="1506">(&amp;UsbtmcWinUsb=2) AND (!UsbtmcWinUsb=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="UnregisterIvi" Sequence="1505">(&amp;RegisterVisa=2) AND (!RegisterVisa=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="UnregisterNet" Sequence="1506">(&amp;RegisterVisaNet=2) AND (!RegisterVisaNet=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="UnregisterCom" Sequence="1507">(&amp;RegisterVisaCom=2) AND (!RegisterVisaCom=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="UninstallUsbtmc" Sequence="1508">(&amp;UsbtmcWinUsb=2) AND (!UsbtmcWinUsb=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="ReleaseDevices" Sequence="1509">(&amp;UsbtmcWinUsb=2) AND (!UsbtmcWinUsb=3) AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="OpenData" After="InstallFiles">NOT REMOVE</Custom>
       <Custom Action="RegisterIvi" After="OpenData">&amp;RegisterVisa=3</Custom>
       <Custom Action="RegisterNet" After="RegisterIvi">&amp;RegisterVisaNet=3</Custom>
       <Custom Action="RegisterCom" After="RegisterNet">&amp;RegisterVisaCom=3</Custom>
-      <Custom Action="InstallUsbtmc" After="RegisterCom">&amp;UsbtmcWinUsb=3</Custom>
-      <Custom Action="InstallWebView2" After="InstallUsbtmc">NOT REMOVE AND NOT WEBVIEW2_MACHINE AND NOT WEBVIEW2_USER</Custom>
+      <Custom Action="RemoveOldUsbtmc" After="RegisterCom">&amp;UsbtmcWinUsb=3</Custom>
+      <Custom Action="InstallWebView2" After="RemoveOldUsbtmc">NOT REMOVE AND NOT WEBVIEW2_MACHINE AND NOT WEBVIEW2_USER</Custom>
       <RemoveFolders Sequence="3600" />
     </InstallExecuteSequence>
 
@@ -236,13 +266,13 @@
       <ComponentRef Id="DotnetCore" />
       <ComponentRef Id="Data" />
     </Feature>
-    <Feature Id="UsbtmcWinUsb" Title="USBTMC instruments on WinUSB" Level="1" AllowAdvertise="no"
-             Description="USBTMC instruments with no driver are given Windows' WinUSB driver, so this VISA can use them; those on a vendor's driver keep it. Installs a driver package signed by a certificate made on this computer, whose private key is then deleted."><ComponentRef Id="RegUsbtmc" /></Feature>
-    <Feature Id="RegisterVisa" Title="Register with the IVI VISA router" Level="1000" AllowAdvertise="no"
+    <Feature Id="UsbtmcWinUsb" Title="Devices without a driver on WinUSB" Level="1" AllowAdvertise="no"
+             Description="A service gives USB instruments and GPIB adapters that have no driver Windows' own WinUSB driver when they are plugged in, so this VISA can use them; those on a vendor's driver keep it."><ComponentRef Id="BindService" /></Feature>
+    <Feature Id="RegisterVisa" Title="Register with the IVI VISA router" Level="$(var.RegLevel)" AllowAdvertise="no"
              Description="Programs that load visa64.dll or visa32.dll by name find this VISA through the IVI VISA router. Programs that scan every VISA's instruments then reach yours too."><ComponentRef Id="RegIvi" /></Feature>
-    <Feature Id="RegisterVisaNet" Title="Register the VISA.NET implementation" Level="1000" AllowAdvertise="no"
+    <Feature Id="RegisterVisaNet" Title="Register the VISA.NET implementation" Level="$(var.RegLevel)" AllowAdvertise="no"
              Description="Registers this VISA's VISA.NET (Ivi.Visa) implementation, for .NET programs."><ComponentRef Id="RegNet" /></Feature>
-    <Feature Id="RegisterVisaCom" Title="Register the VISA COM implementation" Level="1000" AllowAdvertise="no"
+    <Feature Id="RegisterVisaCom" Title="Register the VISA COM implementation" Level="$(var.RegLevel)" AllowAdvertise="no"
              Description="Registers this VISA's VISA COM implementation, for COM programs and IVI-COM drivers."><ComponentRef Id="RegCom" /></Feature>
   </Product>
 </Wix>

@@ -225,7 +225,7 @@
   "serial.is_bridge": "GPIB 控制器",
   "serial.unplugged": "已设为控制器，但没有插着",
   "usb.devices": "插着的 USBTMC 设备",
-  "usb.hint": "Windows 上仪器用它已有的驱动：WinUSB（没有驱动的由安装程序绑定），或厂商的 USBTMC 驱动——后者允许别家 VISA 同时打开同一台仪器，请不要用两套 VISA 同时操作一台仪器。用 windows\\winusb-bind.ps1 改绑到 WinUSB，仪器就只归这里用。",
+  "usb.hint": "Windows 上仪器用它已有的驱动：WinUSB（没有驱动的由本 VISA 的服务自动绑定），或厂商的 USBTMC 驱动——后者允许别家 VISA 同时打开同一台仪器，请不要用两套 VISA 同时操作一台仪器。用 windows\\winusb-bind.ps1 改绑到 WinUSB，仪器就只归这里用。",
   "usb.ours": "在用（{driver}）",
   "usb.not_ours": "未使用：{why}",
   "usb.none": "没有插着 USBTMC 设备。",

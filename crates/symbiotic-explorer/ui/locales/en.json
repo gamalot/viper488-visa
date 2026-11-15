@@ -231,7 +231,7 @@
   "serial.is_bridge": "GPIB controller",
   "serial.unplugged": "Configured as a controller, not plugged in",
   "usb.devices": "USBTMC devices plugged in",
-  "usb.hint": "On Windows an instrument is used through the driver it has: WinUSB (the installer binds the ones that have no driver), or a vendor's USBTMC driver, which lets another VISA open the instrument at the same time -- do not use one instrument from two VISAs at once. windows\\winusb-bind.ps1 gives one to WinUSB, and to this VISA alone.",
+  "usb.hint": "On Windows an instrument is used through the driver it has: WinUSB (a service of this VISA gives it to the ones that have no driver), or a vendor's USBTMC driver, which lets another VISA open the instrument at the same time -- do not use one instrument from two VISAs at once. windows\\winusb-bind.ps1 gives one to WinUSB, and to this VISA alone.",
   "usb.ours": "Used here ({driver})",
   "usb.not_ours": "Not used: {why}",
   "usb.none": "No USBTMC device is plugged in.",

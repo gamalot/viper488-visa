@@ -20,7 +20,7 @@
  with Location naming visa32.dll: the 32-bit router (SysWOW64\visa32.dll) and its conflict manager run as
  32-bit code, and Windows redirects their HKLM\SOFTWARE to that view.
 
- This adds one key of its own and changes nothing else; the key is exported to windows\regbackup first
+ This adds one key of its own and changes nothing else; the key is exported to %SystemRoot%\Logs\Symbiotic\regbackup first
  if it already exists. System32\visa64.dll stays the IVI router: never copy Symbiotic over it.
  The daemon starts from the DLL's directory; a DLL under one user's profile serves only processes that can
  read that directory, so for more than one user install it somewhere shared first.
@@ -75,7 +75,9 @@ if (-not (Test-Path (Join-Path (Split-Path $Dll) 'symbioticd.exe'))) { throw "sy
 
 function Register([string]$k, [string]$lib, [string]$backup) {
     if (Test-Path $k) {
-        $d = Join-Path $PSScriptRoot 'regbackup'; New-Item -ItemType Directory -Force $d | Out-Null
+        # With the install's other logs (only administrators can write there), not in windows\ of the install, which an
+        # uninstall could then not empty (the MSI takes away what versions before 0.1.311 left there).
+        $d = Join-Path $env:SystemRoot 'Logs\Symbiotic\regbackup'; New-Item -ItemType Directory -Force $d | Out-Null
         reg export ($k -replace '^HKLM:', 'HKLM') "$d\$backup" /y | Out-Null
     }
     New-Item $k -Force | Out-Null

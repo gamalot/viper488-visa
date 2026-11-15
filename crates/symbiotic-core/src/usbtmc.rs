@@ -115,8 +115,8 @@ pub fn list_all() -> Result<Vec<Found>, Error> {
         let not_ours = if serial.is_empty() {
             Some("it reports no serial number, so it has no stable name".to_string())
         } else if cfg!(windows) && driver.is_empty() {
-            // The installer's UsbtmcWinUsb feature binds every instrument that has no driver to WinUSB.
-            Some("it has no driver (the installer's \"USBTMC instruments on WinUSB\" feature binds it; repair the installation with that feature)".to_string())
+            // The service SymbioticBind gives an instrument that has no driver WinUSB within seconds.
+            Some("it has no driver (the service SymbioticBind gives it WinUSB in a few seconds; if it does not, repair the installation with its feature, \"Devices without a driver on WinUSB\", and see %SystemRoot%\\Logs\\Symbiotic\\bind.log)".to_string())
         } else if cfg!(windows) && !driver.eq_ignore_ascii_case("winusb") && through.is_none() {
             // A driver that just took the device over may report it started with its interface not yet enabled, until
             // the device is plugged in again or Windows restarts.

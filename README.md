@@ -54,9 +54,11 @@ Four kinds of USB adapter: **Viper488** (WinUSB protocol v2), the **NI GPIB-USB-
 CONTEC, each by serial number, then the Prologix/AR488 bridges; after that a number stays with its adapter
 while the daemon runs (unplugged, it keeps its number and comes back to it).
 
-- **NI, Keysight and CONTEC** adapters must be bound to WinUSB on Windows first, which takes them away from
-  their vendor's own software: from an elevated PowerShell, `windows\winusb-bind.ps1 -VidPid <VID:PID>`
-  (`winusb-unbind.ps1` gives the device back).
+- **NI, Keysight and CONTEC** adapters are used on Windows through Windows' own WinUSB driver. One with no
+  driver gets it from the installer's binding service when it is plugged in (see [Installing](#installing)).
+  One on its vendor's driver must be bound by hand, which takes it away from the vendor's own software: from
+  an elevated PowerShell, `windows\winusb-bind.ps1 -VidPid <VID:PID>` (`winusb-unbind.ps1` gives the device
+  back).
 - **The 82357B** boots blank and needs Keysight's firmware image, which this project may not distribute:
   put `measat_releaseX1.8.hex` in the `firmware` folder of the configuration directory (see
   `firmware/README.md`). The daemon loads it the first time the adapter is used after it is plugged in,
@@ -82,8 +84,8 @@ write its EEPROM).
 
 Through whatever driver the instrument has:
 
-- **No driver** (a clean Windows has no USBTMC driver): bound to WinUSB by the installer's
-  `UsbtmcWinUsb` feature (see [Installing](#installing)), and then owned by the daemon.
+- **No driver** (a clean Windows has no USBTMC driver): given Windows' own WinUSB driver by the installer's
+  binding service when it is plugged in (see [Installing](#installing)), and then owned by the daemon.
 - **A vendor's USBTMC driver** (the one Keysight, NI and other VISAs install): left there and used through the
   interface IVI-6.2 specifies for such drivers. That driver lets two programs have an instrument open at
   once, so do not use one USBTMC instrument from Symbiotic and another VISA at the same time. To give an
@@ -237,7 +239,8 @@ the daemon opens that adapter), the LAN instrument list, the bridges and the ali
 
 ### Windows
 
-One MSI, for all users, which needs an administrator. Double-clicking it opens the installer's pages:
+One MSI, for all users, which needs an administrator: `symbiotic-visa-<v>-windows-x64.msi`, or
+`symbiotic-visa-<v>-windows-arm64.msi` on an ARM computer (below). Double-clicking it opens the installer's pages:
 welcome, the features to install and the folder (`C:\Program Files\Symbiotic` by default), then a last page
 where **Install** starts the work. Nothing is changed before that. Double-clicking it again when it is
 installed offers Change, Repair or Remove. The install folder goes on the system PATH; the configuration
@@ -249,15 +252,16 @@ Features:
 
 - **Viper488 Symbiotic VISA** (required): the libraries, the daemon, Symbiotic Explorer,
   `symbiotic-ctl`, the C headers and import libraries, the VISA.NET and VISA COM assemblies.
-- **USBTMC instruments on WinUSB** (on by default): Windows has no USBTMC driver of its own, so an instrument
-  with no driver cannot be used until something gives it one. This feature installs a driver package that
-  gives such instruments Windows' own WinUSB driver (no kernel code of its own). The package is dated
-  01/01/2000, so every vendor's USBTMC driver outranks it: an instrument that already has a vendor driver
-  keeps it, and if a vendor VISA is installed later its driver takes its instruments back. To be installed
-  the package has to be signed: the installer creates a certificate on this computer, adds it to the
-  computer's **Trusted Root Certification Authorities** and **Trusted Publishers** stores, signs the package
-  and then **deletes the certificate's private key**, so it cannot sign anything else. Uninstalling removes
-  the package and the certificate. Untick it on the features page if you do not want it.
+- **Devices without a driver on WinUSB** (on by default): Windows has no USBTMC driver of its own, and the
+  NI, Keysight and CONTEC adapters come with drivers only their makers' software uses. This feature is a small
+  Windows service, **Symbiotic WinUSB binding** (`SymbioticBind`, running as SYSTEM): a USBTMC instrument or
+  one of those adapters that has **no** driver is given Windows' own WinUSB driver, signed by Microsoft, a few
+  seconds after it is plugged in, as picking "WinUsb Device" for it in Device Manager would. It installs no
+  driver package and no certificate. A device that has a vendor's driver keeps it. Uninstalling gives every
+  device it bound back to Windows, which chooses its driver again (the vendor's, if one is installed). Its log
+  is `%SystemRoot%\Logs\Symbiotic\bind.log`. Untick it on the features page if you do not want it.
+  (Versions before 0.1.307 did this with a driver package signed by a certificate made on the computer;
+  upgrading removes both.)
 - **Register with the IVI VISA router**, **Register the VISA.NET implementation**, **Register the VISA COM
   implementation** (off by default): make programs that find VISA through the IVI shared components find
   this one. Think before turning them on: every program that scans the system's VISA then reaches your
@@ -266,6 +270,13 @@ Features:
 A silent install chooses the features by name:
 
     msiexec /i symbiotic-visa-<v>-windows-x64.msi /qn ADDLOCAL=Runtime,UsbtmcWinUsb,RegisterVisa,RegisterVisaNet,RegisterVisaCom
+
+**Windows on Arm.** Windows on an ARM computer runs ARM programs and also emulated x64 and 32-bit x86 ones.
+In the ARM package `visa64.dll` is one *ARM64X* file that ARM programs and emulated x64 programs both load by
+name (an x64 program's VISA calls run as native code); `visa32.dll` is the same 32-bit library as on x64; the
+daemon, Symbiotic Explorer and `symbiotic-ctl` are ARM programs. The three registrations are not offered:
+there are no IVI shared components for Windows on Arm. Windows on Arm accepts no driver package Microsoft has
+not signed, which is why devices are bound to Windows' own WinUSB.
 
 pyvisa needs no path once the router registration is on (its default library is the router); before that,
 give it `C:\Program Files\Symbiotic\visa64.dll`. Never copy the DLL over `C:\Windows\System32\visa64.dll`:
@@ -337,6 +348,8 @@ A Linux build of the whole workspace needs WebKitGTK's headers for Symbiotic Exp
 - GPIB secondary addresses work on the USB adapters, not on a Prologix/AR488.
 - Not yet verified with real hardware: Prologix controllers and the Agilent E5810A (an E5810A-compatible
   gateway has been).
+- **Windows on Arm** has been run in a virtual machine (Windows 11 on ARM), not yet on a real ARM laptop, and
+  not with pyvisa.
 - **32-bit programs on a machine with NI-VISA**: NI installs its own VISA as `SysWOW64\visa32.dll` instead of
   the IVI router, so a 32-bit program that loads `visa32.dll` by name gets NI-VISA only. VISA COM is not
   affected. Copying our `visa32.dll` into such a program's own folder makes it find ours first.
