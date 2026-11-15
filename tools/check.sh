@@ -33,7 +33,14 @@ fi
 
 step "Windows build (visa64.dll, symbioticd.exe, symbiotic-ctl.exe, symbiotic-probe.exe)"
 if cargo xwin --version >/dev/null 2>&1; then
-    RUSTFLAGS="-D warnings" cargo xwin build -q --release --target x86_64-pc-windows-msvc
+    # crt-static repeated: a RUSTFLAGS replaces .cargo/config.toml's.
+    RUSTFLAGS="-D warnings -C target-feature=+crt-static" cargo xwin build -q --release --target x86_64-pc-windows-msvc
+    # No Windows binary depends on a C runtime DLL (.cargo/config.toml): none is installed, and one in a program's
+    # own folder is not ours to bind to.
+    for f in target/x86_64-pc-windows-msvc/release/{visa64.dll,symbioticd.exe,symbiotic-ctl.exe,symbiotic-bind.exe,symbiotic-explorer.exe,symbiotic-quiet.exe}; do
+        n=$(llvm-readobj --coff-imports "$f" | grep -ciE 'Name: (vcruntime|msvcp|ucrtbase|api-ms-win-crt)' || true)
+        [ "$n" = 0 ] || { echo "$f imports a C runtime DLL ($n): crt-static (.cargo/config.toml) is not in effect"; exit 1; }
+    done
     ls -l target/x86_64-pc-windows-msvc/release/visa64.dll
 else
     echo "SKIPPED: cargo-xwin is not installed"
@@ -72,6 +79,8 @@ clang -std=c11 -Wall -Werror -o "$tmp/c_api" tests/c_api.c -Iinclude -Ltarget/re
 step "32-bit: visa32.dll and visa32.lib, every declared function exported, tests/c_api.c links against it"
 if cargo xwin --version >/dev/null 2>&1; then
     RUSTFLAGS="-D warnings" tools/build_visa32.sh | tail -1
+    n=$(llvm-readobj --coff-imports target/i686-pc-windows-msvc/release/visa32.dll | grep -ciE 'Name: (vcruntime|msvcp|ucrtbase|api-ms-win-crt)' || true)
+    [ "$n" = 0 ] || { echo "visa32.dll imports a C runtime DLL ($n): crt-static is not in effect"; exit 1; }
     python3 tools/check_exports.py target/i686-pc-windows-msvc/release/visa32.dll include/visa.h
     ARCH=x86 tools/build_c_api.sh "$tmp/c_api32.exe" >/dev/null && echo "tests/c_api.c builds and links against visa32.lib"
 else

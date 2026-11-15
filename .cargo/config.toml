@@ -1,0 +1,8 @@
+# Every Windows binary has the C runtime linked in (crt-static: the VC runtime and the Universal CRT both; cargo-xwin
+# keeps the Universal CRT static with it). No vcruntime140.dll is needed on the machine (the MSI installs none), and none
+# is taken from a program's own folder: an ARM64X visa64.dll bound to the x64 vcruntime140.dll an x64 Python carries
+# crashed on its first call. The C API hands no C runtime object (memory,
+# FILE) across the DLL boundary, so a runtime of its own is safe. Symbiotic Explorer's VC runtime was static already.
+# A RUSTFLAGS in the environment replaces this, so the scripts that set one repeat it.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

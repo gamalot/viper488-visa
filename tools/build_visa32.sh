@@ -19,7 +19,10 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 profile=${SYMBIOTIC_PROFILE:-release}
 REL=target/i686-pc-windows-msvc/$profile
-XWIN_ARCH=x86,x86_64,aarch64 RUSTFLAGS="${RUSTFLAGS:-}" cargo xwin build -q --profile "$profile" --target i686-pc-windows-msvc -p symbiotic-visa
+# A RUSTFLAGS from the caller (check.sh's -D warnings) replaces .cargo/config.toml's, so crt-static is added to it; with
+# none, none is set (an empty one would replace them too).
+if [ -n "${RUSTFLAGS:-}" ]; then export RUSTFLAGS="$RUSTFLAGS -C target-feature=+crt-static"; else unset RUSTFLAGS; fi
+XWIN_ARCH=x86,x86_64,aarch64 cargo xwin build -q --profile "$profile" --target i686-pc-windows-msvc -p symbiotic-visa
 cp "$REL/visa64.dll" "$REL/visa32.dll"
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 {

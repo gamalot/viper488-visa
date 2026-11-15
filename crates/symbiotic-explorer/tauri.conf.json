@@ -2,7 +2,10 @@
   "productName": "Symbiotic Explorer",
   "identifier": "com.viper488.symbiotic",
   "build": {
-    "frontendDist": "ui"
+    "frontendDist": "ui",
+    "windows": {
+      "staticVCRuntime": false
+    }
   },
   "app": {
     "withGlobalTauri": true,

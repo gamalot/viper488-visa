@@ -63,8 +63,12 @@ cdylib=target/aarch64-pc-windows-msvc/$profile/visa64.dll
 { echo 'LIBRARY visa64.dll'; echo 'EXPORTS'; llvm-readobj --coff-exports "$cdylib" | awk '$1 == "Name:" { print "    " $2 }' | sort; } > "$out/visa64.def"
 n=$(grep -c '^    ' "$out/visa64.def")
 
+# The VC runtime is linked in (crt-static, libcmt and libvcruntime), the Universal CRT is not (ucrt.lib: it is Windows'
+# own, ARM64X on Windows on Arm): the "hybrid CRT". Linked against VCRUNTIME140.dll instead, the ARM64EC half took the
+# x64 vcruntime140.dll an x64 program carries beside it (the python.org x64 Python does), and the first call from that
+# program crashed.
 for t in aarch64 arm64ec; do
-    RUSTFLAGS="-L $sdk -L $X/sdk/lib/um/aarch64 -L $X/crt/lib/aarch64" \
+    RUSTFLAGS="-C target-feature=+crt-static -L $sdk -L $X/sdk/lib/um/aarch64 -L $X/crt/lib/aarch64" \
         cargo xwin rustc -q --profile "$profile" --target $t-pc-windows-msvc -p symbiotic-visa --lib --crate-type staticlib --target-dir target/arm64x
 done
 
@@ -95,9 +99,13 @@ lldv=$("$lld" -flavor link --version 2>/dev/null | sed -n 's/^LLD \([0-9]*\)\..*
     /def:"$out/visa64.def" /defarm64native:"$out/visa64.def" \
     target/arm64x/aarch64-pc-windows-msvc/$profile/visa64.lib target/arm64x/arm64ec-pc-windows-msvc/$profile/visa64.lib \
     /libpath:"$sdk" /libpath:"$X/sdk/lib/um/aarch64" /libpath:"$X/crt/lib/aarch64" \
-    kernel32.lib ntdll.lib userenv.lib ws2_32.lib dbghelp.lib msvcrt.lib vcruntime.lib ucrt.lib softintrin.lib \
+    /nodefaultlib:libucrt.lib /nodefaultlib:msvcrt.lib /nodefaultlib:vcruntime.lib \
+    kernel32.lib ntdll.lib userenv.lib ws2_32.lib dbghelp.lib libcmt.lib libvcruntime.lib ucrt.lib softintrin.lib \
     $winlibs "$res"
 
+# No VC runtime DLL among its imports (above).
+[ "$(llvm-readobj --coff-imports "$out/visa64.dll" | grep -ci 'Name: vcruntime')" = 0 ] \
+    || { echo "$out/visa64.dll imports a VC runtime DLL: it must have the VC runtime linked in"; exit 1; }
 # One file, ARM64X, the same exports in both views.
 [ "$(llvm-readobj --file-headers "$out/visa64.dll" | grep -c 'IMAGE_FILE_MACHINE_ARM64X')" -gt 0 ] || { echo "$out/visa64.dll is not ARM64X"; exit 1; }
 got=$(llvm-readobj --coff-exports "$out/visa64.dll" | grep -c 'Name:')
